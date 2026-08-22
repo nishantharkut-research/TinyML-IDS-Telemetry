@@ -58,14 +58,14 @@ Create and verify the self-contained evidence bundle once:
 
 ```powershell
 $env:CUKD_XAI_ROOT = "C:\path\to\CuKD-XAI"
-tinyml-ids-telemetry evidence audit
-tinyml-ids-telemetry evidence bundle --output data/source-evidence-v1
-$env:TINYML_IDS_EVIDENCE_ROOT = (Resolve-Path data/source-evidence-v1).Path
+tinyml-ids-telemetry evidence audit --source --evidence-root $env:CUKD_XAI_ROOT
+tinyml-ids-telemetry evidence bundle --evidence-root $env:CUKD_XAI_ROOT --output data/source-evidence
+$env:TINYML_IDS_EVIDENCE_ROOT = (Resolve-Path data/source-evidence).Path
 tinyml-ids-telemetry evidence audit
 tinyml-ids-telemetry evidence snapshot --output artifacts/canonical-snapshot-v1
 ```
 
-The importer copies 31 required artifacts and preserves their repository-relative
+The importer copies 79 required artifacts and preserves their repository-relative
 paths and SHA-256 values. Generated data and source evidence are intentionally
 excluded from Git. Distributed integration tests additionally require Docker
 Desktop.

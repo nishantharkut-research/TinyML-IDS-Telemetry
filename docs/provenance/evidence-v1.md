@@ -16,9 +16,10 @@ will be added after a stable bibliographic record exists.
 | Item | Value |
 | --- | --- |
 | Sealed report SHA-256 | `898ba47cb72528bd8e7cad56b4a7a26b2a6f87872a614a9fbc31f98f20810162` |
-| Evidence bundle ID | `fb7b0cbc74d098f2c908b90151baff6a7a3f0a1c67c17159ce8ff599fe6e84b5` |
-| Bundle artifact count | 31 |
-| Bundle payload bytes | 37,241,392 |
+| Evidence bundle ID | `dab62c721fe05fc8d3e763284ff84d356cb59d7895d4e4a08b7865cc6b99a991` |
+| Bundle artifact count | 79 |
+| Bundle payload bytes | 38,715,130 |
+| Shared evaluation-sequence SHA-256 | `38c413c2def2debc8f6f67f6cbd983514925ca97345e619f1a94f8fe057dfc7e` |
 | Canonical snapshot ID | `d4cfb79165bcc88e82f3aae0721d86b9cd5fd008f5567d11d5e6bc98e6dfb4ff` |
 | Canonical event count | 225,204 |
 | Canonical event SHA-256 | `dd790ff824e2c53e9661da9e03a6f0d05eb78fc61b36e10c57ac4b6d83314f8f` |
@@ -29,14 +30,18 @@ will be added after a stable bibliographic record exists.
 
 The verified build performs these checks before publishing a snapshot:
 
-1. validate the sealed report, completion manifests, compile records, export
-   reports, export manifests, preprocessing metadata, and firmware hashes;
+1. validate the externally anchored sealed report, every completion-listed
+   session file, every compile-record portable artifact, export reports, export
+   manifests, preprocessing metadata, and firmware hashes;
 2. validate board, model, protocol, session, stage, dataset, split, scaler,
    class mapping, seed, and fixed-point output-scale lineage;
 3. join every MCU row to its fixed-point reference by contiguous `row_id`;
-4. require exact prediction and all-five-logit equality for every execution;
-5. rebuild from the imported bundle and require byte-identical event and lineage
-   streams relative to a direct read-only source build.
+4. require an `OK` status, exact prediction, and all-five-logit equality for
+   every execution;
+5. prove that all four lineages use the same ordered evaluation records and
+   labels;
+6. require the externally anchored bundle manifest during normal operation and
+   rebuild the frozen snapshot from the imported bundle.
 
 The opt-in regression is `tests/full_evidence/test_cukd_xai.py`. Set
 `TINYML_IDS_EVIDENCE_ROOT` to the imported bundle before running it.
