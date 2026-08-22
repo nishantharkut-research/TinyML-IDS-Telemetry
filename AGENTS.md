@@ -9,7 +9,12 @@ or replace the physical hardware-in-the-loop protocol.
 ## Evidence Boundary
 
 - Treat the CuKD-XAI repository as read-only source evidence.
-- Resolve it through `CUKD_XAI_ROOT`; never rely on one developer's absolute path.
+- Copy only catalog-whitelisted, hash-verified artifacts into the local evidence
+  bundle. "Move" never means deleting or relocating the source artifacts.
+- After import, use `TINYML_IDS_EVIDENCE_ROOT`; normal analytics must not depend
+  on the CuKD-XAI checkout remaining available.
+- Resolve the one-time source through `CUKD_XAI_ROOT`; never persist one
+  developer's absolute path in bundle manifests or generated reports.
 - Never write generated data, checkpoints, caches, or reports below
   `CUKD_XAI_ROOT`.
 - Verify source hashes and lineage metadata before adapting records.
@@ -59,6 +64,8 @@ or replace the physical hardware-in-the-loop protocol.
   Spark checkpoints, HDFS volumes, or local evidence paths.
 - External agents may review read-only or work on disjoint files. A primary
   maintainer must verify every result before integration.
+- Do not fabricate or pre-announce a citation for unpublished companion work.
+  Add the article citation only after a stable bibliographic record exists.
 
 ## Verification
 
@@ -82,4 +89,3 @@ Documentation and dashboards must distinguish:
 - predicted-attack preservation from true-attack retention;
 - replay-pipeline throughput from physical device throughput;
 - fixed-point logit scale from model-independent confidence.
-

@@ -38,12 +38,12 @@
 - Create: `src/tinyml_ids_telemetry/__init__.py`
 - Create: `tests/conftest.py`
 
-- [ ] Write a metadata test that imports the package and checks its version.
-- [ ] Run `py -3.11 -m pytest tests/unit/test_package.py -v` and observe the import failure.
-- [ ] Add the minimal package metadata and module.
-- [ ] Create `.venv` with Python 3.11 and install `.[dev]`.
-- [ ] Run `python -m pytest -q`, `python -m ruff check .`, and `python -m mypy src`.
-- [ ] Commit the repository foundation.
+- [x] Write a metadata test that imports the package and checks its version.
+- [x] Run `py -3.11 -m pytest tests/unit/test_package.py -v` and observe the import failure.
+- [x] Add the minimal package metadata and module.
+- [x] Create `.venv` with Python 3.11 and install `.[dev]`.
+- [x] Run `python -m pytest -q`, `python -m ruff check .`, and `python -m mypy src`.
+- [x] Commit the repository foundation.
 
 ### Task 2: Canonical Contracts and JSON Schema
 
@@ -51,18 +51,18 @@
 - Create: `schemas/telemetry-event-v1.schema.json`
 - Create: `src/tinyml_ids_telemetry/contracts/event.py`
 - Create: `src/tinyml_ids_telemetry/contracts/identity.py`
-- Create: `src/tinyml_ids_telemetry/contracts/errors.py`
+- Create: `src/tinyml_ids_telemetry/contracts/lineage.py`
 - Test: `tests/unit/contracts/test_identity.py`
 - Test: `tests/contract/test_event_schema.py`
 
-- [ ] Write failing tests for canonical SHA-256 source and lineage identifiers.
-- [ ] Run the identity tests and confirm missing-module failures.
-- [ ] Implement canonical tuple encoding and identifier functions.
-- [ ] Write failing schema tests for valid events, malformed logits, unsupported versions, and invalid class identifiers.
-- [ ] Run the schema tests and confirm validation failures.
-- [ ] Implement immutable event/lineage dataclasses and JSON serialization.
-- [ ] Add the versioned JSON Schema and prove dataclass output validates against it.
-- [ ] Run contract, static, and type checks; commit the contract layer.
+- [x] Write failing tests for canonical SHA-256 source and lineage identifiers.
+- [x] Run the identity tests and confirm missing-module failures.
+- [x] Implement canonical tuple encoding and identifier functions.
+- [x] Write failing schema tests for valid events, malformed logits, unsupported versions, and invalid class identifiers.
+- [x] Run the schema tests and confirm validation failures.
+- [x] Implement immutable event/lineage dataclasses and JSON serialization.
+- [x] Add the versioned JSON Schema and prove dataclass output validates against it.
+- [x] Run contract, static, and type checks; commit the contract layer.
 
 ### Task 3: Immutable Evidence Audit and Adapter
 
@@ -72,22 +72,25 @@
 - Create: `src/tinyml_ids_telemetry/evidence/hashes.py`
 - Create: `src/tinyml_ids_telemetry/evidence/audit.py`
 - Create: `src/tinyml_ids_telemetry/evidence/adapter.py`
+- Create: `src/tinyml_ids_telemetry/evidence/bundle.py`
+- Create: `src/tinyml_ids_telemetry/evidence/snapshot.py`
 - Create: `src/tinyml_ids_telemetry/cli/evidence.py`
-- Test: `tests/fixtures/source_evidence/`
+- Test: `tests/helpers/evidence_factory.py`
 - Test: `tests/unit/evidence/test_catalog.py`
 - Test: `tests/unit/evidence/test_audit.py`
 - Test: `tests/unit/evidence/test_adapter.py`
 - Test: `tests/full_evidence/test_cukd_xai.py`
 
-- [ ] Build a minimal two-lineage fixture with MCU, reference, compile, and completion artifacts.
-- [ ] Write failing tests for root resolution and rejecting output paths inside the evidence root.
-- [ ] Implement portable TOML catalog resolution through `CUKD_XAI_ROOT`.
-- [ ] Write failing tests for hash mismatch, row gaps, duplicate rows, prediction mismatch, logit mismatch, unknown class mapping, and missing output scale.
-- [ ] Implement streaming CSV audit and one-to-one joins without loading all source rows into memory.
-- [ ] Write failing tests for canonical event adaptation and normalized top-two margin.
-- [ ] Implement JSONL snapshot creation through an atomic temporary file plus manifest rename.
-- [ ] Add an opt-in test for all four real lineages and 225,204 unique source events.
-- [ ] Run fixture tests and the read-only full-evidence audit; commit the adapter.
+- [x] Build a provenance-complete fixture with MCU, reference, compile, completion, export, and preprocessing artifacts.
+- [x] Write failing tests for root resolution and rejecting output paths inside the evidence root.
+- [x] Implement portable TOML catalog resolution through `TINYML_IDS_EVIDENCE_ROOT` with a `CUKD_XAI_ROOT` import fallback.
+- [x] Write failing tests for hash mismatch, row gaps, duplicate rows, prediction mismatch, logit mismatch, unknown class mapping, and missing output scale.
+- [x] Implement streaming CSV audit and one-to-one joins without loading all source rows into memory.
+- [x] Write failing tests for canonical event adaptation and normalized top-two margin.
+- [x] Implement an atomic minimal evidence-bundle import and an atomic JSONL snapshot.
+- [x] Add an opt-in test for all four real lineages and 225,204 unique source events.
+- [x] Rebuild the same frozen snapshot from both the read-only source and imported bundle.
+- [x] Run fixture, static, type, and full-evidence checks; commit the evidence layer.
 
 ### Task 4: Retention Policies and Exact Aggregates
 

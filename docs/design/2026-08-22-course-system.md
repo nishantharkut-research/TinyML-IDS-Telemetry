@@ -39,6 +39,9 @@ Internet scale.
 Read-only CuKD-XAI evidence
           |
           v
+Minimal verified local evidence bundle
+          |
+          v
 Evidence audit and canonical snapshot
           |
           v
@@ -75,6 +78,11 @@ the original stop-and-wait MCU UDP protocol.
 ## Data Layers
 
 ### Evidence snapshot
+
+The importer first audits the source and atomically copies only the 31 required
+artifacts while preserving their repository-relative paths and hashes. Normal
+execution reads this local bundle and does not require the source checkout.
+Neither import nor snapshot creation writes below either evidence root.
 
 The adapter verifies source manifests and hashes, validates all four expected
 lineages, joins MCU and reference CSVs, and writes canonical JSON Lines plus a
@@ -221,6 +229,7 @@ must remain outside the course baseline until the baseline is complete.
 ## Acceptance Criteria
 
 1. The source repository is never modified and output-under-source is rejected.
+   The imported bundle re-audits independently before analytics begin.
 2. Four expected lineages and their source hashes validate.
 3. Every lineage has 56,301 unique contiguous rows.
 4. MCU/reference joins, predictions, and all five logits agree exactly.
@@ -239,4 +248,3 @@ must remain outside the course baseline until the baseline is complete.
 - Spark Structured Streaming: https://spark.apache.org/docs/4.1.3/streaming/
 - Spark Kafka integration: https://spark.apache.org/docs/4.1.3/streaming/structured-streaming-kafka-integration.html
 - Hadoop Streaming: https://hadoop.apache.org/docs/current/hadoop-streaming/HadoopStreaming.html
-

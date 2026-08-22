@@ -63,7 +63,7 @@ packages = ["src/tinyml_ids_telemetry"]
 addopts = "--strict-config --strict-markers"
 testpaths = ["tests"]
 markers = [
-  "full_evidence: requires the external CuKD-XAI evidence repository",
+  "full_evidence: requires the verified TinyML IDS evidence bundle",
   "integration: requires local distributed services or Docker",
 ]
 

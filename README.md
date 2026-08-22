@@ -18,12 +18,14 @@ Each board-model pair contains 56,301 full-stage executions. The resulting
 225,204 independent predictive samples.
 
 This project begins after inference. It does not retrain models, modify firmware,
-capture live packets, extract network features, or alter the archived evidence.
+capture live packets, extract network features, or alter the source evidence.
+The required evidence is copied once into a minimal, hash-verified local bundle;
+normal operation is independent of the CuKD-XAI checkout.
 
 ## Architecture
 
 ```text
-CuKD-XAI evidence -> canonical snapshot -> Kafka replay
+CuKD-XAI evidence -> verified local bundle -> canonical snapshot -> Kafka replay
                                         -> Bronze deliveries
                                         -> Spark Silver/Gold
                                         -> retained views
@@ -52,8 +54,21 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python -m pytest
 ```
 
-Full-evidence runs require `CUKD_XAI_ROOT` to point to a read-only CuKD-XAI
-checkout. Distributed integration tests additionally require Docker Desktop.
+Create and verify the self-contained evidence bundle once:
+
+```powershell
+$env:CUKD_XAI_ROOT = "C:\path\to\CuKD-XAI"
+tinyml-ids-telemetry evidence audit
+tinyml-ids-telemetry evidence bundle --output data/source-evidence-v1
+$env:TINYML_IDS_EVIDENCE_ROOT = (Resolve-Path data/source-evidence-v1).Path
+tinyml-ids-telemetry evidence audit
+tinyml-ids-telemetry evidence snapshot --output artifacts/canonical-snapshot-v1
+```
+
+The importer copies 31 required artifacts and preserves their repository-relative
+paths and SHA-256 values. Generated data and source evidence are intentionally
+excluded from Git. Distributed integration tests additionally require Docker
+Desktop.
 
 ## Evidence and Claims
 
@@ -61,9 +76,10 @@ All reports must distinguish source evidence from analytics replay, physical
 executions from independent samples, MCU compute time from Wi-Fi round-trip
 time, and predicted-alert preservation from true-attack retention. See
 [`AGENTS.md`](AGENTS.md) for non-negotiable engineering and reporting rules.
+The frozen evidence identities are recorded in
+[`docs/provenance/evidence-v1.md`](docs/provenance/evidence-v1.md).
 
 ## License
 
 Copyright (c) 2026 Nishant Harkut. All rights reserved. No open-source license
 is granted by this repository at this stage.
-

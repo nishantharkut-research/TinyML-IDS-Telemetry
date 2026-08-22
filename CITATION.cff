@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "Please cite the associated manuscript when it becomes available."
+message: "Cite this software for the analytics system. Add the companion research article citation after its bibliographic record becomes public."
 title: "TinyML IDS Telemetry"
 type: software
 authors:
