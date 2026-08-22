@@ -32,6 +32,9 @@ classifiers = [
 ]
 dependencies = []
 
+[project.scripts]
+tinyml-ids-telemetry = "tinyml_ids_telemetry.cli.main:main"
+
 [project.optional-dependencies]
 dev = [
   "hypothesis>=6.130,<7",
