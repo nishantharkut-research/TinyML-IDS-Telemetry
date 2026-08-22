@@ -105,14 +105,14 @@
 - Test: `tests/unit/policies/test_security_aware.py`
 - Test: `tests/property/test_policy_invariants.py`
 
-- [ ] Write failing tests proving retain-all never drops a valid event.
-- [ ] Implement `retain-all-v1`.
-- [ ] Write failing tests for predicted attacks, protocol anomalies, low margins, and deterministic normal sampling.
-- [ ] Implement `security-aware-static-v1` with reason, probability, and inverse weight.
-- [ ] Write a property test that mutates true labels without changing decisions.
-- [ ] Write failing tests for exact integer aggregate merge behavior.
-- [ ] Implement mergeable count/sum aggregates and offline true-attack retention evaluation.
-- [ ] Run policy/property tests and commit the policy layer.
+- [x] Write failing tests proving retain-all never drops a valid event.
+- [x] Implement `retain-all-v1`.
+- [x] Write failing tests for predicted attacks, protocol anomalies, low margins, and deterministic normal sampling.
+- [x] Implement `security-aware-static-v1` with reason, probability, and inverse weight.
+- [x] Write a property test that mutates true labels without changing decisions.
+- [x] Write failing tests for exact integer aggregate merge behavior.
+- [x] Implement mergeable count/sum aggregates and offline true-attack retention evaluation.
+- [x] Run policy/property tests and commit the policy layer.
 
 ### Task 5: Deterministic Replay and Kafka Delivery
 

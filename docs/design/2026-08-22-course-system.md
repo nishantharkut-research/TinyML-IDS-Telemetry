@@ -79,7 +79,7 @@ the original stop-and-wait MCU UDP protocol.
 
 ### Evidence snapshot
 
-The importer first audits the source and atomically copies only the 31 required
+The importer first audits the source and atomically copies only the 79 required
 artifacts while preserving their repository-relative paths and hashes. Normal
 execution reads this local bundle and does not require the source checkout.
 Neither import nor snapshot creation writes below either evidence root.
