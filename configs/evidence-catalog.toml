@@ -1,0 +1,42 @@
+version = 1
+sealed_report = "results/wireless_hil/fgds_seed42/final_report_lineage_sealed_v2/wireless_hil_final_report.json"
+
+[[models]]
+name = "student_A"
+preprocess_metadata = "deployment/firmware_export/wsnds_rfkd_hil/generated_fgds_student_A_seed42/preprocess_metadata.json"
+
+[[models]]
+name = "student_B"
+preprocess_metadata = "deployment/firmware_export/wsnds_rfkd_hil/generated_fgds_student_B_seed42/preprocess_metadata.json"
+
+[[lineages]]
+label = "esp32c3_student_A"
+board = "esp32c3"
+student_model = "student_A"
+completion_manifest = "results/wireless_hil/fgds_seed42/pi5_esp32c3_student_A/wireless_hil_completion_manifest.json"
+compile_record = "results/wireless_hil/fgds_seed42/compile_evidence/esp32c3_student_A.json"
+mcu_csv = "results/wireless_hil/fgds_seed42/pi5_esp32c3_student_A/full_56301_mcu.csv"
+
+[[lineages]]
+label = "esp32c3_student_B"
+board = "esp32c3"
+student_model = "student_B"
+completion_manifest = "results/wireless_hil/fgds_seed42/pi5_esp32c3_student_B/wireless_hil_completion_manifest.json"
+compile_record = "results/wireless_hil/fgds_seed42/compile_evidence/esp32c3_student_B.json"
+mcu_csv = "results/wireless_hil/fgds_seed42/pi5_esp32c3_student_B/full_56301_mcu.csv"
+
+[[lineages]]
+label = "arduino_r4_student_A"
+board = "arduino_r4"
+student_model = "student_A"
+completion_manifest = "results/wireless_hil/fgds_seed42/pi5_arduino_r4_student_A/wireless_hil_completion_manifest.json"
+compile_record = "results/wireless_hil/fgds_seed42/compile_evidence/arduino_r4_student_A_dhcp_v2.json"
+mcu_csv = "results/wireless_hil/fgds_seed42/pi5_arduino_r4_student_A/full_56301_mcu.csv"
+
+[[lineages]]
+label = "arduino_r4_student_B"
+board = "arduino_r4"
+student_model = "student_B"
+completion_manifest = "results/wireless_hil/fgds_seed42/pi5_arduino_r4_student_B/wireless_hil_completion_manifest.json"
+compile_record = "results/wireless_hil/fgds_seed42/compile_evidence/arduino_r4_student_B_dhcp_v2.json"
+mcu_csv = "results/wireless_hil/fgds_seed42/pi5_arduino_r4_student_B/full_56301_mcu.csv"
