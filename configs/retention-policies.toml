@@ -1,0 +1,19 @@
+version = 1
+
+[retain_all]
+policy_id = "retain-all-v1"
+
+[security_aware_static]
+policy_id = "security-aware-static-v1"
+normal_sample_numerator = 1
+normal_sample_denominator = 10
+threshold_snapshot_id = "d4cfb79165bcc88e82f3aae0721d86b9cd5fd008f5567d11d5e6bc98e6dfb4ff"
+threshold_quantile_method = "nearest-rank-p10-predicted-normal-per-model"
+
+[security_aware_static.logit_frac_bits]
+student_A = 9
+student_B = 9
+
+[security_aware_static.margin_thresholds]
+student_A = "6.330078125"
+student_B = "5.701171875"
