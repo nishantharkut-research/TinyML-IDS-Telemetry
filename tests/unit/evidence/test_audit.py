@@ -33,6 +33,51 @@ def test_audit_rejects_mcu_file_changed_after_manifest_sealing(tmp_path: Path) -
         audit_catalog(load_catalog(catalog_path, evidence_root=root))
 
 
+def test_audit_rejects_coherently_resealed_tree_without_trust_anchor_change(
+    tmp_path: Path,
+) -> None:
+    root, catalog_path = create_evidence_tree(tmp_path)
+    report_path = root / "results/final_report.json"
+    report = read_json(report_path)
+    report["untrusted_reseal"] = True
+    write_json(report_path, report)
+
+    with pytest.raises(EvidenceContractError, match="sealed_report SHA-256"):
+        audit_catalog(load_catalog(catalog_path, evidence_root=root))
+
+
+def test_audit_reads_and_validates_every_telemetry_row(tmp_path: Path) -> None:
+    root, catalog_path = create_evidence_tree(tmp_path)
+    mcu_path = root / "results/sessions/esp32c3_A/full_mcu.csv"
+    text = mcu_path.read_text(encoding="utf-8").replace("0,OK,3,", "0,FAILED,3,")
+    mcu_path.write_text(text, encoding="utf-8")
+
+    completion_path = root / "results/sessions/esp32c3_A/completion.json"
+    completion = read_json(completion_path)
+    completion["stage_evidence"]["full_56301"]["mcu_csv_sha256"] = _sha(mcu_path)
+    completion["files"][0]["sha256"] = _sha(mcu_path)
+    completion["files"][0]["size_bytes"] = mcu_path.stat().st_size
+    write_json(completion_path, completion)
+
+    report_path = root / "results/final_report.json"
+    report = read_json(report_path)
+    report["input_evidence"]["esp32c3_student_A"]["completion_manifest_sha256"] = _sha(
+        completion_path
+    )
+    write_json(report_path, report)
+    catalog_text = catalog_path.read_text(encoding="utf-8")
+    catalog_path.write_text(
+        catalog_text.replace(
+            _catalog_anchor(catalog_text),
+            _sha(report_path),
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(EvidenceContractError, match="status"):
+        audit_catalog(load_catalog(catalog_path, evidence_root=root))
+
+
 def test_audit_rejects_compile_identity_mismatch(tmp_path: Path) -> None:
     root, catalog_path = create_evidence_tree(tmp_path)
     compile_path = root / "results/compile/esp32c3_A.json"
@@ -43,8 +88,32 @@ def test_audit_rejects_compile_identity_mismatch(tmp_path: Path) -> None:
     report = read_json(report_path)
     report["input_evidence"]["esp32c3_student_A"]["compile_sha256"] = _sha(compile_path)
     write_json(report_path, report)
+    _update_catalog_anchor(catalog_path, report_path)
 
     with pytest.raises(EvidenceContractError, match="board"):
+        audit_catalog(load_catalog(catalog_path, evidence_root=root))
+
+
+def test_audit_rejects_tampered_portable_compile_artifact(tmp_path: Path) -> None:
+    root, catalog_path = create_evidence_tree(tmp_path)
+    compile_log = root / "results/compile/esp32c3_A_artifacts/compile_log.txt"
+    compile_log.write_text("tampered\n", encoding="utf-8")
+
+    with pytest.raises(EvidenceContractError, match="compile_log"):
+        audit_catalog(load_catalog(catalog_path, evidence_root=root))
+
+
+def test_audit_rejects_invalid_strict_manifest_identity(tmp_path: Path) -> None:
+    root, catalog_path = create_evidence_tree(tmp_path)
+    strict_manifest_path = (
+        root / "results/compile/esp32c3_A_artifacts/strict_export_manifest.json"
+    )
+    strict_manifest = read_json(strict_manifest_path)
+    strict_manifest["student"] = "student_B"
+    write_json(strict_manifest_path, strict_manifest)
+    _reseal_compile_record(root, catalog_path)
+
+    with pytest.raises(EvidenceContractError, match=r"strict_export_manifest\.student"):
         audit_catalog(load_catalog(catalog_path, evidence_root=root))
 
 
@@ -54,7 +123,7 @@ def test_audit_rejects_missing_normal_class_mapping(tmp_path: Path) -> None:
     metadata = read_json(metadata_path)
     metadata["class_names"][3] = "Benign"
     write_json(metadata_path, metadata)
-    _reseal_model_artifacts(root)
+    _reseal_model_artifacts(root, catalog_path)
 
     with pytest.raises(EvidenceContractError, match="Normal"):
         audit_catalog(load_catalog(catalog_path, evidence_root=root))
@@ -66,7 +135,7 @@ def test_audit_rejects_missing_final_logit_scale(tmp_path: Path) -> None:
     strict = read_json(strict_path)
     strict["fixed_point_calibration"]["layers"] = []
     write_json(strict_path, strict)
-    _reseal_model_artifacts(root)
+    _reseal_model_artifacts(root, catalog_path)
 
     with pytest.raises(EvidenceContractError, match="output_frac"):
         audit_catalog(load_catalog(catalog_path, evidence_root=root))
@@ -78,7 +147,20 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _reseal_model_artifacts(root: Path) -> None:
+def _catalog_anchor(text: str) -> str:
+    prefix = 'sealed_report_sha256 = "'
+    return text.split(prefix, maxsplit=1)[1].split('"', maxsplit=1)[0]
+
+
+def _update_catalog_anchor(catalog_path: Path, report_path: Path) -> None:
+    catalog_text = catalog_path.read_text(encoding="utf-8")
+    catalog_path.write_text(
+        catalog_text.replace(_catalog_anchor(catalog_text), _sha(report_path)),
+        encoding="utf-8",
+    )
+
+
+def _reseal_model_artifacts(root: Path, catalog_path: Path) -> None:
     preprocess_path = root / "models/student_A/preprocess_metadata.json"
     strict_path = root / "results/compile/esp32c3_A_artifacts/strict_export_report.json"
     strict_manifest_path = root / "results/compile/esp32c3_A_artifacts/strict_export_manifest.json"
@@ -104,3 +186,19 @@ def _reseal_model_artifacts(root: Path) -> None:
     report = read_json(report_path)
     report["input_evidence"]["esp32c3_student_A"]["compile_sha256"] = _sha(compile_path)
     write_json(report_path, report)
+    _update_catalog_anchor(catalog_path, report_path)
+
+
+def _reseal_compile_record(root: Path, catalog_path: Path) -> None:
+    strict_manifest_path = root / "results/compile/esp32c3_A_artifacts/strict_export_manifest.json"
+    compile_path = root / "results/compile/esp32c3_A.json"
+    compile_record = read_json(compile_path)
+    compile_record["portable_artifacts"]["strict_export_manifest"]["sha256"] = _sha(
+        strict_manifest_path
+    )
+    write_json(compile_path, compile_record)
+    report_path = root / "results/final_report.json"
+    report = read_json(report_path)
+    report["input_evidence"]["esp32c3_student_A"]["compile_sha256"] = _sha(compile_path)
+    write_json(report_path, report)
+    _update_catalog_anchor(catalog_path, report_path)

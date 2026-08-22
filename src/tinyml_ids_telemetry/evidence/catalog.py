@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -12,6 +13,9 @@ from typing import cast
 
 class EvidenceContractError(ValueError):
     """Raised when evidence configuration or content violates its contract."""
+
+
+_SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +38,9 @@ class LineageSpec:
 class EvidenceCatalog:
     evidence_root: Path
     sealed_report: Path
+    sealed_report_sha256: str
+    evidence_bundle_id: str | None
+    protected_roots: tuple[Path, ...]
     models: Mapping[str, ModelSpec]
     lineages: tuple[LineageSpec, ...]
 
@@ -42,6 +49,13 @@ def _require_string(record: Mapping[str, object], key: str, context: str) -> str
     value = record.get(key)
     if not isinstance(value, str) or not value:
         raise EvidenceContractError(f"{context}.{key} must be a non-empty string")
+    return value
+
+
+def _require_digest(record: Mapping[str, object], key: str, context: str) -> str:
+    value = _require_string(record, key, context)
+    if _SHA256_PATTERN.fullmatch(value) is None:
+        raise EvidenceContractError(f"{context}.{key} must be a SHA-256 digest")
     return value
 
 
@@ -90,8 +104,11 @@ def load_catalog(
     if not root.is_dir():
         raise EvidenceContractError(f"Evidence root is not a directory: {root}")
 
-    with catalog_path.open("rb") as handle:
-        data = cast(dict[str, object], tomllib.load(handle))
+    try:
+        with catalog_path.open("rb") as handle:
+            data = cast(dict[str, object], tomllib.load(handle))
+    except tomllib.TOMLDecodeError as error:
+        raise EvidenceContractError(f"Invalid evidence catalog TOML: {catalog_path}") from error
     if data.get("version") != 1:
         raise EvidenceContractError("Unsupported evidence catalog version")
 
@@ -100,6 +117,20 @@ def load_catalog(
         _require_string(data, "sealed_report", "catalog"),
         "sealed_report",
     )
+    sealed_report_sha256 = _require_digest(data, "sealed_report_sha256", "catalog")
+    bundle_value = data.get("evidence_bundle_id")
+    evidence_bundle_id = (
+        None
+        if bundle_value is None
+        else _require_digest(data, "evidence_bundle_id", "catalog")
+    )
+
+    protected_candidates = [root]
+    for key in ("TINYML_IDS_EVIDENCE_ROOT", "CUKD_XAI_ROOT"):
+        value = env.get(key)
+        if value is not None and value.strip():
+            protected_candidates.append(Path(value).expanduser().resolve())
+    protected_roots = tuple(dict.fromkeys(protected_candidates))
 
     models: dict[str, ModelSpec] = {}
     for index, record in enumerate(_mapping_list(data, "models")):
@@ -153,6 +184,9 @@ def load_catalog(
     return EvidenceCatalog(
         evidence_root=root,
         sealed_report=sealed_report,
+        sealed_report_sha256=sealed_report_sha256,
+        evidence_bundle_id=evidence_bundle_id,
+        protected_roots=protected_roots,
         models=models,
         lineages=tuple(lineages),
     )
@@ -160,8 +194,17 @@ def load_catalog(
 
 def ensure_output_outside_evidence_root(output_path: Path, evidence_root: Path) -> Path:
     """Resolve an output path and reject writes to the evidence repository."""
-    root = evidence_root.resolve()
+    return ensure_output_outside_evidence_roots(output_path, (evidence_root,))
+
+
+def ensure_output_outside_evidence_roots(
+    output_path: Path,
+    evidence_roots: tuple[Path, ...],
+) -> Path:
+    """Resolve an output path and reject writes below any protected evidence root."""
     output = output_path.expanduser().resolve()
-    if output == root or output.is_relative_to(root):
-        raise EvidenceContractError("Generated output must be outside the evidence root")
+    for evidence_root in evidence_roots:
+        root = evidence_root.resolve()
+        if output == root or output.is_relative_to(root):
+            raise EvidenceContractError("Generated output must be outside every evidence root")
     return output

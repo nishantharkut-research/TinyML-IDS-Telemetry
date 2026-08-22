@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from tinyml_ids_telemetry.evidence.audit import audit_catalog
-from tinyml_ids_telemetry.evidence.bundle import create_evidence_bundle
+from tinyml_ids_telemetry.evidence.bundle import (
+    create_evidence_bundle,
+    verify_evidence_bundle,
+)
 from tinyml_ids_telemetry.evidence.catalog import load_catalog
 from tinyml_ids_telemetry.evidence.snapshot import create_snapshot
 
@@ -28,6 +31,12 @@ def configure_evidence_parser(subparsers: Any) -> None:
             type=Path,
             help="Source repository or imported evidence bundle root",
         )
+        if command == "audit":
+            command_parser.add_argument(
+                "--source",
+                action="store_true",
+                help="Audit the anchored source repository before bundle import",
+            )
         if command in {"bundle", "snapshot"}:
             command_parser.add_argument("--output", type=Path, required=True)
     parser.set_defaults(command_handler=run_evidence_command)
@@ -35,12 +44,20 @@ def configure_evidence_parser(subparsers: Any) -> None:
 
 def run_evidence_command(arguments: argparse.Namespace) -> int:
     catalog = load_catalog(arguments.catalog, evidence_root=arguments.evidence_root)
+    bundle_manifest = catalog.evidence_root / "evidence_bundle_manifest.json"
+    verify_bundle = bundle_manifest.is_file() and arguments.evidence_command != "snapshot"
+    if arguments.evidence_command == "audit" and not arguments.source:
+        verify_bundle = verify_bundle or catalog.evidence_bundle_id is not None
+    if verify_bundle:
+        verify_evidence_bundle(catalog)
     if arguments.evidence_command == "audit":
         audit = audit_catalog(catalog)
         payload: dict[str, object] = {
             "status": "passed",
             "sealed_report_sha256": audit.sealed_report_sha256,
             "total_expected_events": audit.total_expected_events,
+            "validated_event_count": audit.validated_event_count,
+            "evaluation_sequence_sha256": audit.evaluation_sequence_sha256,
             "lineage_count": len(audit.lineages),
             "lineages": [lineage.to_dict() for lineage in audit.lineages],
         }

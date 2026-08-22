@@ -6,12 +6,13 @@ import csv
 from collections.abc import Iterator
 from itertools import zip_longest
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 from tinyml_ids_telemetry.contracts.event import TelemetryEvent
 from tinyml_ids_telemetry.contracts.identity import source_event_id
 from tinyml_ids_telemetry.contracts.lineage import LineageRecord
 from tinyml_ids_telemetry.evidence.catalog import EvidenceContractError
-from tinyml_ids_telemetry.evidence.hashes import sha256_file
+from tinyml_ids_telemetry.evidence.hashes import SeekableBinaryReader, sha256_handle
 
 _MCU_HEADER = (
     "row_id",
@@ -67,11 +68,6 @@ def _resolve_source_path(root: Path, relative_path: str, context: str) -> Path:
     return path
 
 
-def _verify_hash(path: Path, expected: str, context: str) -> None:
-    if not path.is_file() or sha256_file(path) != expected:
-        raise EvidenceContractError(f"{context} SHA-256 mismatch")
-
-
 def _required_text(row: dict[str, str | None], key: str, context: str) -> str:
     value = row.get(key)
     if value is None or value == "":
@@ -100,13 +96,17 @@ def iter_lineage_events(
     root = evidence_root.resolve()
     mcu_path = _resolve_source_path(root, lineage.mcu_relative_path, "mcu_csv")
     reference_path = _resolve_source_path(root, lineage.reference_relative_path, "reference_csv")
-    _verify_hash(mcu_path, lineage.mcu_csv_sha256, "mcu_csv")
-    _verify_hash(reference_path, lineage.reference_csv_sha256, "reference_csv")
 
     with (
         mcu_path.open("r", newline="", encoding="utf-8") as mcu_handle,
         reference_path.open("r", newline="", encoding="utf-8") as reference_handle,
     ):
+        mcu_buffer = cast(SeekableBinaryReader, mcu_handle.buffer)
+        reference_buffer = cast(SeekableBinaryReader, reference_handle.buffer)
+        if sha256_handle(mcu_buffer) != lineage.mcu_csv_sha256:
+            raise EvidenceContractError("mcu_csv SHA-256 mismatch")
+        if sha256_handle(reference_buffer) != lineage.reference_csv_sha256:
+            raise EvidenceContractError("reference_csv SHA-256 mismatch")
         mcu_reader = csv.DictReader(mcu_handle)
         reference_reader = csv.DictReader(reference_handle)
         _validate_header(mcu_reader, _MCU_HEADER, "mcu_csv")

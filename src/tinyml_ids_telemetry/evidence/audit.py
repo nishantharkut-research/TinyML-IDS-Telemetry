@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import cast
 
 from tinyml_ids_telemetry.contracts.identity import lineage_id
 from tinyml_ids_telemetry.contracts.lineage import LineageRecord
+from tinyml_ids_telemetry.evidence.adapter import iter_lineage_events
 from tinyml_ids_telemetry.evidence.catalog import (
     EvidenceCatalog,
     EvidenceContractError,
@@ -25,6 +27,8 @@ _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 class EvidenceAudit:
     sealed_report_sha256: str
     total_expected_events: int
+    validated_event_count: int
+    evaluation_sequence_sha256: str
     lineages: tuple[LineageRecord, ...]
 
 
@@ -34,6 +38,28 @@ def _load_json(path: Path, context: str) -> dict[str, object]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise EvidenceContractError(f"Invalid JSON for {context}: {path}") from error
+    if not isinstance(value, dict):
+        raise EvidenceContractError(f"{context} must be a JSON object")
+    return cast(dict[str, object], value)
+
+
+def _load_verified_json(
+    path: Path,
+    expected_sha256: str,
+    context: str,
+) -> dict[str, object]:
+    if not path.is_file():
+        raise EvidenceContractError(f"Missing {context}: {path}")
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise EvidenceContractError(f"Cannot read {context}: {path}") from error
+    if sha256(payload).hexdigest() != expected_sha256:
+        raise EvidenceContractError(f"{context} SHA-256 mismatch")
+    try:
+        value = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise EvidenceContractError(f"Invalid JSON for {context}: {path}") from error
     if not isinstance(value, dict):
         raise EvidenceContractError(f"{context} must be a JSON object")
@@ -159,18 +185,18 @@ def _audit_lineage(
     expected_rows: int,
 ) -> LineageRecord:
     context = f"lineage[{spec.label}]"
-    completion_hash = _verify_file_hash(
+    completion_hash = _digest(sealed_entry, "completion_manifest_sha256", context)
+    compile_hash = _digest(sealed_entry, "compile_sha256", context)
+    completion = _load_verified_json(
         spec.completion_manifest,
-        _digest(sealed_entry, "completion_manifest_sha256", context),
+        completion_hash,
         f"{context}.completion_manifest",
     )
-    compile_hash = _verify_file_hash(
+    compile_record = _load_verified_json(
         spec.compile_record,
-        _digest(sealed_entry, "compile_sha256", context),
+        compile_hash,
         f"{context}.compile_record",
     )
-    completion = _load_json(spec.completion_manifest, f"{context}.completion_manifest")
-    compile_record = _load_json(spec.compile_record, f"{context}.compile_record")
 
     _expect_equal(completion.get("status"), "complete", f"{context}.completion.status")
     _expect_equal(compile_record.get("status"), "passed", f"{context}.compile.status")
@@ -220,38 +246,97 @@ def _audit_lineage(
         f"{context}.mcu_csv",
     )
 
+    completion_file_hashes: set[str] = set()
+    for index, item in enumerate(_array(completion, "files", f"{context}.completion")):
+        file_context = f"{context}.completion.files[{index}]"
+        if not isinstance(item, dict):
+            raise EvidenceContractError(f"{file_context} must be an object")
+        record = cast(dict[str, object], item)
+        raw_path = _string(record, "path", file_context)
+        if "\\" in raw_path:
+            raise EvidenceContractError(f"{file_context}.path must use POSIX separators")
+        portable_path = PurePosixPath(raw_path)
+        if portable_path.is_absolute() or ".." in portable_path.parts:
+            raise EvidenceContractError(f"{file_context}.path is unsafe")
+        source_path = (spec.completion_manifest.parent / Path(*portable_path.parts)).resolve()
+        if not source_path.is_relative_to(catalog.evidence_root):
+            raise EvidenceContractError(f"{file_context}.path leaves the evidence root")
+        expected_hash = _digest(record, "sha256", file_context)
+        _verify_file_hash(source_path, expected_hash, file_context)
+        completion_file_hashes.add(expected_hash)
+    if mcu_hash not in completion_file_hashes:
+        raise EvidenceContractError(f"{context}.completion.files does not bind the MCU CSV")
+    metrics_hash = full_stage.get("metrics_json_sha256")
+    if metrics_hash is not None:
+        if not isinstance(metrics_hash, str) or _SHA256_PATTERN.fullmatch(metrics_hash) is None:
+            raise EvidenceContractError(f"{context}.full_stage.metrics_json_sha256 is invalid")
+        if metrics_hash not in completion_file_hashes:
+            raise EvidenceContractError(f"{context}.completion.files does not bind full metrics")
+        if "metrics_sha256" in sealed_entry:
+            _expect_equal(
+                sealed_entry.get("metrics_sha256"),
+                metrics_hash,
+                f"{context}.sealed.metrics_sha256",
+            )
+
     portable = _object(compile_record, "portable_artifacts", f"{context}.compile")
-    reference_path, reference_hash = _resolve_portable_artifact(
-        spec.compile_record,
-        catalog.evidence_root,
-        _object(portable, "hil_reference_predictions", f"{context}.compile.portable_artifacts"),
-        f"{context}.reference_csv",
-    )
-    strict_report_path, _ = _resolve_portable_artifact(
-        spec.compile_record,
-        catalog.evidence_root,
-        _object(portable, "strict_export_report", f"{context}.compile.portable_artifacts"),
-        f"{context}.strict_export_report",
-    )
-    strict_manifest_path, _ = _resolve_portable_artifact(
-        spec.compile_record,
-        catalog.evidence_root,
-        _object(portable, "strict_export_manifest", f"{context}.compile.portable_artifacts"),
-        f"{context}.strict_export_manifest",
-    )
-    _, firmware_hash = _resolve_portable_artifact(
-        spec.compile_record,
-        catalog.evidence_root,
-        _object(portable, "firmware_binary", f"{context}.compile.portable_artifacts"),
-        f"{context}.firmware_binary",
-    )
+    verified_portable: dict[str, tuple[Path, str]] = {}
+    for key, item in portable.items():
+        if not isinstance(item, dict):
+            raise EvidenceContractError(
+                f"{context}.compile.portable_artifacts.{key} must be an object"
+            )
+        verified_portable[key] = _resolve_portable_artifact(
+            spec.compile_record,
+            catalog.evidence_root,
+            cast(dict[str, object], item),
+            f"{context}.compile.portable_artifacts.{key}",
+        )
+    required_portable = {
+        "firmware_binary",
+        "strict_export_report",
+        "strict_export_manifest",
+        "hil_reference_predictions",
+    }
+    missing_portable = required_portable.difference(verified_portable)
+    if missing_portable:
+        raise EvidenceContractError(
+            f"{context}.compile.portable_artifacts missing {sorted(missing_portable)}"
+        )
+    reference_path, reference_hash = verified_portable["hil_reference_predictions"]
+    strict_report_path, strict_report_hash = verified_portable["strict_export_report"]
+    strict_manifest_path, strict_manifest_hash = verified_portable["strict_export_manifest"]
+    _, firmware_hash = verified_portable["firmware_binary"]
     _expect_equal(
         compile_record.get("firmware_binary_sha256"),
         firmware_hash,
         f"{context}.compile.firmware_binary_sha256",
     )
-    strict_report = _load_json(strict_report_path, f"{context}.strict_export_report")
-    strict_manifest = _load_json(strict_manifest_path, f"{context}.strict_export_manifest")
+    strict_report = _load_verified_json(
+        strict_report_path,
+        strict_report_hash,
+        f"{context}.strict_export_report",
+    )
+    strict_manifest = _load_verified_json(
+        strict_manifest_path,
+        strict_manifest_hash,
+        f"{context}.strict_export_manifest",
+    )
+    _expect_equal(
+        strict_manifest.get("status"),
+        "passed",
+        f"{context}.strict_export_manifest.status",
+    )
+    _expect_equal(
+        strict_manifest.get("export_id"),
+        export_id,
+        f"{context}.strict_export_manifest.export_id",
+    )
+    _expect_equal(
+        strict_manifest.get("student"),
+        spec.student_model,
+        f"{context}.strict_export_manifest.student",
+    )
     _expect_equal(
         _manifest_file_hash(
             strict_manifest,
@@ -280,13 +365,22 @@ def _audit_lineage(
         preprocess_expected_hash,
         f"{context}.preprocess_metadata",
     )
-    metadata = _load_json(model.preprocess_metadata, f"{context}.preprocess_metadata")
+    metadata = _load_verified_json(
+        model.preprocess_metadata,
+        preprocess_expected_hash,
+        f"{context}.preprocess_metadata",
+    )
 
     _expect_equal(strict_report.get("status"), "passed", f"{context}.strict.status")
     _expect_equal(strict_report.get("export_id"), export_id, f"{context}.strict.export_id")
     provenance = _object(strict_report, "provenance", f"{context}.strict")
     _expect_equal(provenance.get("student"), spec.student_model, f"{context}.provenance.student")
     dataset_protocol_id = _string(provenance, "protocol_id", f"{context}.provenance")
+    _expect_equal(
+        strict_manifest.get("protocol_id"),
+        dataset_protocol_id,
+        f"{context}.strict_export_manifest.protocol_id",
+    )
     _expect_equal(
         metadata.get("protocol_id"),
         dataset_protocol_id,
@@ -366,7 +460,11 @@ def _audit_lineage(
 
 def audit_catalog(catalog: EvidenceCatalog) -> EvidenceAudit:
     """Verify the sealed report and construct trusted lineage records."""
-    report = _load_json(catalog.sealed_report, "sealed_report")
+    report = _load_verified_json(
+        catalog.sealed_report,
+        catalog.sealed_report_sha256,
+        "sealed_report",
+    )
     _expect_equal(report.get("status"), "passed", "sealed_report.status")
     expected_rows = _integer(
         report,
@@ -396,8 +494,57 @@ def audit_catalog(catalog: EvidenceCatalog) -> EvidenceAudit:
         total_expected_events,
         "sealed_report.full_test_board_model_predictions",
     )
+    shared_fields = (
+        "dataset_protocol_id",
+        "dataset_sha256",
+        "test_split_sha256",
+        "scaler_sha256",
+        "expected_rows",
+        "class_names",
+        "normal_class_id",
+    )
+    first_lineage = lineages[0]
+    for lineage in lineages[1:]:
+        for field_name in shared_fields:
+            _expect_equal(
+                getattr(lineage, field_name),
+                getattr(first_lineage, field_name),
+                f"shared_evaluation.{field_name}",
+            )
+
+    source_event_ids: set[str] = set()
+    evaluation_sequence_hash: str | None = None
+    validated_event_count = 0
+    for lineage in lineages:
+        sequence_digest = sha256()
+        lineage_count = 0
+        for event in iter_lineage_events(catalog.evidence_root, lineage):
+            if event.status != "OK":
+                raise EvidenceContractError(
+                    f"lineage[{lineage.lineage_id}] row[{event.row_id}] status is not OK"
+                )
+            if event.source_event_id in source_event_ids:
+                raise EvidenceContractError("source_event_id must be globally unique")
+            source_event_ids.add(event.source_event_id)
+            sequence_digest.update(f"{event.source_row_index}|{event.true_class_id}\n".encode("ascii"))
+            lineage_count += 1
+        if lineage_count != lineage.expected_rows:
+            raise EvidenceContractError("validated lineage row count mismatch")
+        current_sequence_hash = sequence_digest.hexdigest()
+        if evaluation_sequence_hash is None:
+            evaluation_sequence_hash = current_sequence_hash
+        elif current_sequence_hash != evaluation_sequence_hash:
+            raise EvidenceContractError(
+                "lineages do not share the same ordered evaluation records and labels"
+            )
+        validated_event_count += lineage_count
+
+    if validated_event_count != total_expected_events or evaluation_sequence_hash is None:
+        raise EvidenceContractError("validated event count does not match the sealed report")
     return EvidenceAudit(
-        sealed_report_sha256=sha256_file(catalog.sealed_report),
+        sealed_report_sha256=catalog.sealed_report_sha256,
         total_expected_events=total_expected_events,
+        validated_event_count=validated_event_count,
+        evaluation_sequence_sha256=evaluation_sequence_hash,
         lineages=lineages,
     )

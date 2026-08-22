@@ -1,5 +1,7 @@
 version = 1
 sealed_report = "results/wireless_hil/fgds_seed42/final_report_lineage_sealed_v2/wireless_hil_final_report.json"
+sealed_report_sha256 = "898ba47cb72528bd8e7cad56b4a7a26b2a6f87872a614a9fbc31f98f20810162"
+evidence_bundle_id = "dab62c721fe05fc8d3e763284ff84d356cb59d7895d4e4a08b7865cc6b99a991"
 
 [[models]]
 name = "student_A"

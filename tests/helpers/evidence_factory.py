@@ -148,6 +148,16 @@ def create_evidence_tree(tmp_path: Path) -> tuple[Path, Path]:
 
     firmware_path = artifact_dir / "firmware.bin"
     firmware_path.write_bytes(b"fixture-firmware")
+    compile_log_path = artifact_dir / "compile_log.txt"
+    compile_log_path.write_text("fixture compile passed\n", encoding="utf-8")
+    wireless_manifest_path = write_json(
+        artifact_dir / "wireless_bundle_manifest.json",
+        {"status": "passed", "wireless_bundle_id": "5" * 64},
+    )
+    metrics_path = write_json(
+        session_dir / "full_metrics.json",
+        {"status": "passed", "rows": 2},
+    )
 
     strict_report_path = write_json(
         artifact_dir / "strict_export_report.json",
@@ -219,6 +229,10 @@ def create_evidence_tree(tmp_path: Path) -> tuple[Path, Path]:
             "wireless_bundle_id": "5" * 64,
             "firmware_binary_sha256": sha256_file(firmware_path),
             "portable_artifacts": {
+                "compile_log": {
+                    "path": "esp32c3_A_artifacts/compile_log.txt",
+                    "sha256": sha256_file(compile_log_path),
+                },
                 "firmware_binary": {
                     "path": "esp32c3_A_artifacts/firmware.bin",
                     "sha256": sha256_file(firmware_path),
@@ -234,6 +248,10 @@ def create_evidence_tree(tmp_path: Path) -> tuple[Path, Path]:
                 "hil_reference_predictions": {
                     "path": "esp32c3_A_artifacts/hil_reference_predictions.csv",
                     "sha256": sha256_file(reference_path),
+                },
+                "wireless_bundle_manifest": {
+                    "path": "esp32c3_A_artifacts/wireless_bundle_manifest.json",
+                    "sha256": sha256_file(wireless_manifest_path),
                 },
             },
         },
@@ -255,6 +273,7 @@ def create_evidence_tree(tmp_path: Path) -> tuple[Path, Path]:
                     "rows": 2,
                     "stage_id": "B4DBB03070AE393B",
                     "mcu_csv_sha256": sha256_file(mcu_path),
+                    "metrics_json_sha256": sha256_file(metrics_path),
                 }
             },
             "full_stage_inferences": 2,
@@ -263,7 +282,12 @@ def create_evidence_tree(tmp_path: Path) -> tuple[Path, Path]:
                     "path": "full_mcu.csv",
                     "sha256": sha256_file(mcu_path),
                     "size_bytes": mcu_path.stat().st_size,
-                }
+                },
+                {
+                    "path": "full_metrics.json",
+                    "sha256": sha256_file(metrics_path),
+                    "size_bytes": metrics_path.stat().st_size,
+                },
             ],
         },
     )
@@ -282,6 +306,7 @@ def create_evidence_tree(tmp_path: Path) -> tuple[Path, Path]:
                     "session_id": "800BB679CF655CC17125D62D04EC04F3",
                     "export_id": "4" * 64,
                     "wireless_bundle_id": "5" * 64,
+                    "metrics_sha256": sha256_file(metrics_path),
                 }
             },
         },
@@ -291,9 +316,10 @@ def create_evidence_tree(tmp_path: Path) -> tuple[Path, Path]:
 
     catalog_path = tmp_path / "catalog.toml"
     catalog_path.write_text(
-        """
+        f"""
 version = 1
 sealed_report = "results/final_report.json"
+sealed_report_sha256 = "{sha256_file(sealed_path)}"
 
 [[models]]
 name = "student_A"

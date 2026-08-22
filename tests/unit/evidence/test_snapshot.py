@@ -1,10 +1,12 @@
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from tests.helpers.evidence_factory import create_evidence_tree, sha256_file
+from tinyml_ids_telemetry.evidence.bundle import create_evidence_bundle
 from tinyml_ids_telemetry.evidence.catalog import EvidenceContractError, load_catalog
 from tinyml_ids_telemetry.evidence.snapshot import create_snapshot
 
@@ -26,6 +28,11 @@ def test_snapshot_atomically_writes_events_lineages_and_manifest(tmp_path: Path)
     assert (output / "snapshot_manifest.json").is_file()
     assert sha256_file(output / "events.jsonl") == manifest.events_sha256
     assert sha256_file(output / "lineages.jsonl") == manifest.lineages_sha256
+    payload = json.loads((output / "snapshot_manifest.json").read_text(encoding="utf-8"))
+    assert payload["execution_lineage_count"] == 1
+    assert payload["rows_per_lineage"] == 2
+    assert payload["evaluation_sequence_sha256"] == manifest.evaluation_sequence_sha256
+    assert payload["source_interpretation"].startswith("1 board-model execution")
 
     events = [json.loads(line) for line in (output / "events.jsonl").read_text().splitlines()]
     assert [event["row_id"] for event in events] == [0, 1]
@@ -55,6 +62,22 @@ def test_snapshot_rejects_output_inside_evidence_root(tmp_path: Path) -> None:
         create_snapshot(catalog, root / "generated", created_at=FIXED_TIME)
 
 
+def test_snapshot_rejects_output_inside_separately_configured_source_root(
+    tmp_path: Path,
+) -> None:
+    bundle_root, catalog_path = create_evidence_tree(tmp_path)
+    source_root = tmp_path / "source-repository"
+    source_root.mkdir()
+    catalog = load_catalog(
+        catalog_path,
+        evidence_root=bundle_root,
+        environment={"CUKD_XAI_ROOT": str(source_root)},
+    )
+
+    with pytest.raises(EvidenceContractError, match="outside"):
+        create_snapshot(catalog, source_root / "generated", created_at=FIXED_TIME)
+
+
 def test_snapshot_rejects_existing_destination(tmp_path: Path) -> None:
     root, catalog_path = create_evidence_tree(tmp_path)
     catalog = load_catalog(catalog_path, evidence_root=root)
@@ -63,6 +86,38 @@ def test_snapshot_rejects_existing_destination(tmp_path: Path) -> None:
 
     with pytest.raises(EvidenceContractError, match="already exists"):
         create_snapshot(catalog, output, created_at=FIXED_TIME)
+
+
+def test_snapshot_rejects_invalid_evidence_bundle_manifest(tmp_path: Path) -> None:
+    source_root, catalog_path = create_evidence_tree(tmp_path)
+    source_catalog = load_catalog(catalog_path, evidence_root=source_root)
+    bundle_root = tmp_path / "bundle"
+    create_evidence_bundle(source_catalog, bundle_root)
+    bundle_manifest = bundle_root / "evidence_bundle_manifest.json"
+    payload = json.loads(bundle_manifest.read_text(encoding="utf-8"))
+    payload["bundle_id"] = "0" * 64
+    bundle_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    bundle_catalog = load_catalog(catalog_path, evidence_root=bundle_root)
+
+    with pytest.raises(EvidenceContractError, match="bundle ID"):
+        create_snapshot(bundle_catalog, tmp_path / "snapshot", created_at=FIXED_TIME)
+
+
+def test_snapshot_rejects_missing_externally_anchored_bundle_manifest(
+    tmp_path: Path,
+) -> None:
+    source_root, catalog_path = create_evidence_tree(tmp_path)
+    source_catalog = load_catalog(catalog_path, evidence_root=source_root)
+    bundle_root = tmp_path / "bundle"
+    manifest = create_evidence_bundle(source_catalog, bundle_root)
+    (bundle_root / "evidence_bundle_manifest.json").unlink()
+    bundle_catalog = replace(
+        load_catalog(catalog_path, evidence_root=bundle_root),
+        evidence_bundle_id=manifest.bundle_id,
+    )
+
+    with pytest.raises(EvidenceContractError, match="Missing evidence_bundle_manifest"):
+        create_snapshot(bundle_catalog, tmp_path / "snapshot", created_at=FIXED_TIME)
 
 
 def test_snapshot_failure_does_not_publish_partial_destination(tmp_path: Path) -> None:

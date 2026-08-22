@@ -13,10 +13,11 @@ from typing import TextIO
 
 from tinyml_ids_telemetry.evidence.adapter import iter_lineage_events
 from tinyml_ids_telemetry.evidence.audit import audit_catalog
+from tinyml_ids_telemetry.evidence.bundle import verify_evidence_bundle
 from tinyml_ids_telemetry.evidence.catalog import (
     EvidenceCatalog,
     EvidenceContractError,
-    ensure_output_outside_evidence_root,
+    ensure_output_outside_evidence_roots,
 )
 from tinyml_ids_telemetry.evidence.hashes import sha256_file
 
@@ -29,6 +30,8 @@ class SnapshotManifest:
     sealed_report_sha256: str
     event_count: int
     lineage_count: int
+    rows_per_lineage: int
+    evaluation_sequence_sha256: str
     events_sha256: str
     lineages_sha256: str
     lineage_ids: tuple[str, ...]
@@ -41,12 +44,16 @@ class SnapshotManifest:
             "sealed_report_sha256": self.sealed_report_sha256,
             "event_count": self.event_count,
             "lineage_count": self.lineage_count,
+            "execution_lineage_count": self.lineage_count,
+            "rows_per_lineage": self.rows_per_lineage,
+            "evaluation_sequence_sha256": self.evaluation_sequence_sha256,
             "events_sha256": self.events_sha256,
             "lineages_sha256": self.lineages_sha256,
             "lineage_ids": list(self.lineage_ids),
             "source_interpretation": (
-                "Hardware executions over a shared test set; event_count is not an independent "
-                "predictive-sample count."
+                f"{self.lineage_count} board-model executions over one shared "
+                f"{self.rows_per_lineage}-record test sequence; event_count is not an "
+                "independent predictive-sample count."
             ),
             "event_time_boundary": (
                 "The source snapshot has no natural event timestamp; replay time is added only "
@@ -96,11 +103,14 @@ def create_snapshot(
     created_at: datetime | None = None,
 ) -> SnapshotManifest:
     """Audit all sources and atomically publish a canonical JSONL snapshot."""
-    output = ensure_output_outside_evidence_root(output_directory, catalog.evidence_root)
+    output = ensure_output_outside_evidence_roots(output_directory, catalog.protected_roots)
     if output.exists():
         raise EvidenceContractError(f"Snapshot destination already exists: {output}")
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    bundle_manifest = catalog.evidence_root / "evidence_bundle_manifest.json"
+    if catalog.evidence_bundle_id is not None or bundle_manifest.is_file():
+        verify_evidence_bundle(catalog)
     audit = audit_catalog(catalog)
     timestamp = _format_utc(datetime.now(UTC) if created_at is None else created_at)
     lineages = tuple(sorted(audit.lineages, key=lambda lineage: lineage.lineage_id))
@@ -139,6 +149,8 @@ def create_snapshot(
             sealed_report_sha256=audit.sealed_report_sha256,
             event_count=event_count,
             lineage_count=len(lineages),
+            rows_per_lineage=lineages[0].expected_rows,
+            evaluation_sequence_sha256=audit.evaluation_sequence_sha256,
             events_sha256=events_hash,
             lineages_sha256=lineages_hash,
             lineage_ids=tuple(lineage.lineage_id for lineage in lineages),
