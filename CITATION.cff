@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "Please cite the associated manuscript when it becomes available."
+title: "TinyML IDS Telemetry"
+type: software
+authors:
+  - family-names: Harkut
+    given-names: Nishant
+version: 0.1.0
+date-released: 2026-08-22
+repository-code: "https://github.com/nishantharkut/TinyML-IDS-Telemetry"
+license: LicenseRef-Proprietary

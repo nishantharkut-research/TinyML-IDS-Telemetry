@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+
+# Local configuration and credentials
+.env
+configs/evidence.local.toml
+
+# Generated telemetry and distributed-system state
+artifacts/
+checkpoints/
+data/
+logs/
+reports/local/
+spark-warehouse/
+metastore_db/
+
+# Containers and editors
+.docker/
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
