@@ -127,13 +127,13 @@
 - Test: `tests/contract/test_kafka_record.py`
 - Test: `tests/integration/test_kafka_replay.py`
 
-- [ ] Write failing tests for deterministic synthetic time, duplicate injection, out-of-order delivery, and resume offsets.
-- [ ] Implement a lazy replay schedule that does not mutate canonical events.
-- [ ] Define a sink protocol and a memory sink for deterministic tests.
-- [ ] Write failing Kafka serialization tests for key, headers, and payload.
-- [ ] Implement an optional Kafka sink with delivery callbacks and flush/error handling.
-- [ ] Add the CLI and dry-run JSONL sink.
-- [ ] Run unit tests, then the Docker-marked Kafka integration test; commit replay support.
+- [x] Write failing tests for deterministic synthetic time, duplicate injection, out-of-order delivery, and resume offsets.
+- [x] Implement a lazy replay schedule that does not mutate canonical events.
+- [x] Define a sink protocol and a memory sink for deterministic tests.
+- [x] Write failing Kafka serialization tests for key, headers, and payload.
+- [x] Implement an optional Kafka sink with delivery callbacks and flush/error handling.
+- [x] Add the CLI and dry-run JSONL sink.
+- [x] Run unit tests, then the Docker-marked Kafka integration test; commit replay support.
 
 ### Task 6: Spark Bronze, Silver, Gold, and Queries
 
