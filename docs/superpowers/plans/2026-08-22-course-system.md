@@ -147,13 +147,13 @@
 - Test: `tests/unit/jobs/test_spark_transformations.py`
 - Test: `tests/integration/test_spark_pipeline.py`
 
-- [ ] Write local Spark tests for JSON parsing, quarantine reasons, Kafka metadata preservation, watermark-bounded deduplication, and policy decision output.
-- [ ] Implement pure DataFrame transformations separately from job startup.
-- [ ] Implement Bronze append, Silver/quarantine Parquet, and checkpointed queries.
-- [ ] Write failing finalization tests for exact source-event deduplication and expected-lineage checks.
-- [ ] Implement atomic Gold finalization and finalized-run manifest creation.
-- [ ] Add Spark SQL aggregate builders and documented SQL queries.
-- [ ] Run Spark local tests and the Kafka-to-Parquet integration test; commit distributed processing.
+- [x] Write local Spark tests for JSON parsing, quarantine reasons, Kafka metadata preservation, watermark-bounded deduplication, and policy decision output.
+- [x] Implement pure DataFrame transformations separately from job startup.
+- [x] Implement Bronze append, Silver/quarantine Parquet, and checkpointed queries.
+- [x] Write failing finalization tests for exact source-event deduplication and expected-lineage checks.
+- [x] Implement atomic Gold finalization and finalized-run manifest creation.
+- [x] Add Spark SQL aggregate builders and documented SQL queries.
+- [ ] Run the Kafka-to-Parquet and state-store integration tests during the Linux local-platform verification, when a one-partition broker and native Hadoop filesystem support are available.
 
 ### Task 7: HDFS and Hadoop Streaming Oracle
 
