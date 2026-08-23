@@ -7,6 +7,11 @@ import sys
 from collections.abc import Callable, Sequence
 
 from tinyml_ids_telemetry.cli.evidence import configure_evidence_parser
+from tinyml_ids_telemetry.cli.replay import (
+    ReplayCommandError,
+    ReplayCommandErrorGroup,
+    configure_replay_parser,
+)
 from tinyml_ids_telemetry.evidence.catalog import EvidenceContractError
 
 
@@ -14,6 +19,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tinyml-ids-telemetry")
     subparsers = parser.add_subparsers(dest="command", required=True)
     configure_evidence_parser(subparsers)
+    configure_replay_parser(subparsers)
     return parser
 
 
@@ -23,7 +29,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     handler: Callable[[argparse.Namespace], int] = arguments.command_handler
     try:
         return handler(arguments)
-    except (EvidenceContractError, OSError) as error:
+    except (EvidenceContractError, ReplayCommandError, ReplayCommandErrorGroup, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 

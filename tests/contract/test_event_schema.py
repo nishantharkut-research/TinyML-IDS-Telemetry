@@ -1,12 +1,23 @@
 import json
+import tomllib
+from importlib import resources
 from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
 
 from tinyml_ids_telemetry.contracts.event import TelemetryEvent
+from tinyml_ids_telemetry.contracts.schema import SchemaContractError, validate_event_mapping
 
-SCHEMA_PATH = Path(__file__).parents[2] / "schemas" / "telemetry-event-v1.schema.json"
+PROJECT_ROOT = Path(__file__).parents[2]
+ROOT_SCHEMA_PATH = PROJECT_ROOT / "schemas" / "telemetry-event-v1.schema.json"
+
+
+def _event_schema() -> dict[str, object]:
+    schema_resource = resources.files("tinyml_ids_telemetry").joinpath(
+        "schemas", "telemetry-event-v1.schema.json"
+    )
+    return json.loads(schema_resource.read_text(encoding="utf-8"))
 
 
 def make_event(**changes: object) -> TelemetryEvent:
@@ -59,12 +70,45 @@ def make_event(**changes: object) -> TelemetryEvent:
 
 
 def test_serialized_event_validates_against_versioned_json_schema() -> None:
-    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    validator = Draft202012Validator(schema)
+    validator = Draft202012Validator(_event_schema())
 
     errors = list(validator.iter_errors(make_event().to_dict()))
 
     assert errors == []
+
+
+def test_event_schema_has_one_packaged_authoritative_copy() -> None:
+    schema_resource = resources.files("tinyml_ids_telemetry").joinpath(
+        "schemas", "telemetry-event-v1.schema.json"
+    )
+
+    assert schema_resource.is_file()
+    assert not ROOT_SCHEMA_PATH.exists()
+
+
+def test_jsonschema_is_a_runtime_dependency() -> None:
+    configuration = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert "jsonschema>=4.23,<5" in configuration["project"]["dependencies"]
+    assert "jsonschema>=4.23,<5" not in configuration["project"]["optional-dependencies"]["dev"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda event: event.pop("total_us"), "total_us"),
+        (lambda event: event.update({"replay_run_id": "not-source-data"}), "replay_run_id"),
+    ],
+)
+def test_full_event_mapping_validation_fails_closed(
+    mutation: object,
+    message: str,
+) -> None:
+    event = make_event().to_dict()
+    mutation(event)  # type: ignore[operator]
+
+    with pytest.raises(SchemaContractError, match=message):
+        validate_event_mapping(event)
 
 
 def test_event_serialization_includes_derived_fields() -> None:

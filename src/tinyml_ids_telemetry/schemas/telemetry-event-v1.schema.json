@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/nishantharkut/TinyML-IDS-Telemetry/schemas/telemetry-event-v1.schema.json",
+  "$id": "https://github.com/nishantharkut/TinyML-IDS-Telemetry/tinyml_ids_telemetry/schemas/telemetry-event-v1.schema.json",
   "title": "TinyML IDS source telemetry event v1",
   "type": "object",
   "additionalProperties": false,
