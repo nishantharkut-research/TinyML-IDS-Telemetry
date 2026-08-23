@@ -18,6 +18,7 @@ from pyspark.sql import Column, DataFrame, SparkSession, Window
 from pyspark.sql import functions as F  # noqa: N812
 
 from jobs.spark.build_aggregates import (
+    build_execution_dimension_counts,
     build_operational_metrics,
     build_predictive_row_metrics,
     build_retention_metrics,
@@ -71,11 +72,13 @@ _DEFAULT_POLICY_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "rete
 _OUTPUT_NAMES = (
     "canonical_gold",
     "policy_decisions",
+    "execution_dimension_counts",
     "operational_metrics",
     "predictive_row_metrics",
     "retention_metrics",
     "retention_reason_counts",
 )
+_AGGREGATE_OUTPUT_NAMES = _OUTPUT_NAMES[2:]
 
 
 class GoldFinalizationError(ValueError):
@@ -599,6 +602,32 @@ def _logical_gold_sha256(gold: DataFrame) -> str:
     return digest.hexdigest()
 
 
+def _canonical_event_identity_sha256(gold: DataFrame) -> str:
+    digest = sha256()
+    rows = gold.select(*_EVENT_NAMES).orderBy("source_event_id")
+    for row in rows.toLocalIterator():
+        event = {name: row[name] for name in _EVENT_NAMES}
+        payload_sha256 = sha256(
+            json.dumps(event, sort_keys=True, separators=(",", ":")).encode("ascii")
+        ).hexdigest()
+        digest.update(
+            f"{row.source_event_id}|{row.lineage_id}|{row.row_id}|"
+            f"{row.source_row_index}|{payload_sha256}\n".encode("ascii")
+        )
+    return digest.hexdigest()
+
+
+def _spark_aggregates_payload(outputs: Mapping[str, DataFrame]) -> bytes:
+    aggregates: dict[str, list[dict[str, object]]] = {}
+    for name in _AGGREGATE_OUTPUT_NAMES:
+        rows = [row.asDict(recursive=True) for row in outputs[name].collect()]
+        aggregates[name] = sorted(
+            rows,
+            key=lambda row: json.dumps(row, sort_keys=True, separators=(",", ":")),
+        )
+    return _canonical_bytes(aggregates)
+
+
 def _manifest(
     contract: _FinalizationContract,
     proof: GoldProof,
@@ -608,11 +637,13 @@ def _manifest(
     policy_ids: Sequence[str],
     *,
     completion_receipt_sha256: str,
+    spark_aggregates_sha256: str,
 ) -> dict[str, object]:
     return {
         "schema_version": "telemetry-finalized-run-v1",
         "replay_run_id": contract.receipt["replay_run_id"],
         "snapshot_id": contract.manifest.snapshot_id,
+        "events_sha256": contract.manifest.events_sha256,
         "schedule_identity_sha256": contract.receipt["schedule_identity_sha256"],
         "completion_receipt_sha256": completion_receipt_sha256,
         "source_event_count": proof.source_event_count,
@@ -622,6 +653,8 @@ def _manifest(
             for lineage_id, count in proof.lineage_counts
         ],
         "canonical_gold_identity_sha256": _logical_gold_sha256(gold),
+        "canonical_event_identity_sha256": _canonical_event_identity_sha256(gold),
+        "spark_aggregates_sha256": spark_aggregates_sha256,
         "policy_config_sha256": policy_config_sha256,
         "policy_ids": list(policy_ids),
         "outputs": {name: {"row_count": output_counts[name]} for name in sorted(output_counts)},
@@ -640,6 +673,7 @@ def _build_finalized_outputs(gold: DataFrame) -> dict[str, DataFrame]:
     return {
         "canonical_gold": gold,
         "policy_decisions": decisions,
+        "execution_dimension_counts": build_execution_dimension_counts(gold),
         "operational_metrics": build_operational_metrics(gold),
         "predictive_row_metrics": build_predictive_row_metrics(gold),
         "retention_metrics": build_retention_metrics(gold, decisions),
@@ -671,9 +705,13 @@ def _existing_output_matches(
     manifest_payload: bytes,
     manifest: Mapping[str, object],
     expected_outputs: Mapping[str, DataFrame],
+    spark_aggregates_payload: bytes,
 ) -> bool:
     manifest_path = target / "finalized_run_manifest.json"
     if not manifest_path.is_file() or manifest_path.read_bytes() != manifest_payload:
+        return False
+    aggregate_path = target / "spark_aggregates.json"
+    if not aggregate_path.is_file() or aggregate_path.read_bytes() != spark_aggregates_payload:
         return False
     outputs = cast(dict[str, dict[str, int]], manifest["outputs"])
     try:
@@ -745,6 +783,7 @@ def finalize_run(
         raise GoldFinalizationError(f"invalid policy configuration: {error}") from error
     outputs = _build_finalized_outputs(gold)
     output_counts = {name: frame.count() for name, frame in outputs.items()}
+    spark_aggregates_payload = _spark_aggregates_payload(outputs)
     run_id = cast(str, contract.receipt["replay_run_id"])
     if _RUN_ID.fullmatch(run_id) is None:
         raise GoldFinalizationError("replay_run_id is unsafe for a publication directory")
@@ -758,6 +797,7 @@ def finalize_run(
         policy_contract.sha256,
         policy_contract.policy_ids,
         completion_receipt_sha256=completion_receipt_sha256,
+        spark_aggregates_sha256=sha256(spark_aggregates_payload).hexdigest(),
     )
     manifest_payload = _canonical_bytes(manifest)
     target_manifest = target / "finalized_run_manifest.json"
@@ -775,6 +815,7 @@ def finalize_run(
                 manifest_payload,
                 manifest,
                 outputs,
+                spark_aggregates_payload,
             ):
                 return FinalizationResult(target, target_manifest, False)
             raise GoldFinalizationError("Gold publication is in progress or conflicted") from None
@@ -786,12 +827,14 @@ def finalize_run(
                 manifest_payload,
                 manifest,
                 outputs,
+                spark_aggregates_payload,
             ):
                 return FinalizationResult(target, target_manifest, False)
             raise GoldFinalizationError("Gold destination contains incompatible output")
 
         for name, frame in outputs.items():
             frame.write.mode("errorifexists").parquet(str(staging / name))
+        (staging / "spark_aggregates.json").write_bytes(spark_aggregates_payload)
         (staging / "finalized_run_manifest.json").write_bytes(manifest_payload)
         if target.exists():
             if _existing_output_matches(
@@ -800,6 +843,7 @@ def finalize_run(
                 manifest_payload,
                 manifest,
                 outputs,
+                spark_aggregates_payload,
             ):
                 return FinalizationResult(target, target_manifest, False)
             raise GoldFinalizationError("Gold atomic publication encountered a conflict")
@@ -812,6 +856,7 @@ def finalize_run(
                 manifest_payload,
                 manifest,
                 outputs,
+                spark_aggregates_payload,
             ):
                 return FinalizationResult(target, target_manifest, False)
             raise GoldFinalizationError("Gold atomic publication encountered a conflict") from error

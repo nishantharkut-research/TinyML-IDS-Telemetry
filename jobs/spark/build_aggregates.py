@@ -5,6 +5,8 @@ from __future__ import annotations
 from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F  # noqa: N812
 
+from jobs.spark.common import IGNORED_COUNTER_COLUMNS
+
 
 def _count_if(condition: Column) -> Column:
     return F.sum(F.when(condition, F.lit(1)).otherwise(F.lit(0))).cast("long")
@@ -20,7 +22,7 @@ def build_operational_metrics(gold: DataFrame) -> DataFrame:
         _count_if(F.col("attempts") > 1).alias("retry_event_count"),
         F.sum(F.greatest(F.col("attempts") - 1, F.lit(0))).cast("long").alias("retry_count"),
         F.sum("response_timeout_count").cast("long").alias("response_timeout_count_sum"),
-        F.sum("ignored_datagram_count").cast("long").alias("ignored_datagram_count_sum"),
+        *(F.sum(field).cast("long").alias(f"{field}_sum") for field in IGNORED_COUNTER_COLUMNS),
         F.sum("preprocess_us").cast("long").alias("preprocess_us_sum"),
         F.sum("inference_us").cast("long").alias("inference_us_sum"),
         F.sum("total_us").cast("long").alias("total_us_sum"),
@@ -35,12 +37,96 @@ def build_operational_metrics(gold: DataFrame) -> DataFrame:
 
 def build_predictive_row_metrics(gold: DataFrame) -> DataFrame:
     """Keep unique predictive source rows separate from hardware executions."""
-    return gold.groupBy("replay_run_id").agg(
-        F.lit("predictive_source_row").alias("statistical_unit"),
+    summary = gold.groupBy("replay_run_id").agg(
         F.count(F.lit(1)).cast("long").alias("hardware_execution_count"),
         F.countDistinct("lineage_id").cast("long").alias("execution_lineage_count"),
         F.countDistinct("source_row_index").cast("long").alias("unique_predictive_row_count"),
     )
+    metric_units = (
+        ("hardware_execution_count", "hardware_execution"),
+        ("execution_lineage_count", "execution_lineage"),
+        ("unique_predictive_row_count", "predictive_source_row"),
+    )
+    frames = tuple(
+        summary.select(
+            "replay_run_id",
+            F.lit(metric).alias("metric"),
+            F.lit(unit).alias("statistical_unit"),
+            F.col(metric).alias("value"),
+        )
+        for metric, unit in metric_units
+    )
+    result = frames[0]
+    for frame in frames[1:]:
+        result = result.unionByName(frame)
+    return result
+
+
+def _execution_dimension_count(
+    gold: DataFrame,
+    dimension_kind: str,
+    group_fields: tuple[str, ...],
+    *,
+    board: str | None = None,
+    student_model: str | None = None,
+    class_id: str | None = None,
+    class_name: str | None = None,
+) -> DataFrame:
+    grouped = gold.groupBy("replay_run_id", *group_fields).agg(
+        F.count(F.lit(1)).cast("long").alias("hardware_execution_count")
+    )
+
+    def dimension(source: str | None, data_type: str) -> Column:
+        return F.col(source).cast(data_type) if source is not None else F.lit(None).cast(data_type)
+
+    return grouped.select(
+        "replay_run_id",
+        F.lit(dimension_kind).alias("dimension_kind"),
+        dimension(board, "string").alias("board"),
+        dimension(student_model, "string").alias("student_model"),
+        dimension(class_id, "int").alias("class_id"),
+        dimension(class_name, "string").alias("class_name"),
+        F.lit("hardware_execution").alias("statistical_unit"),
+        "hardware_execution_count",
+    )
+
+
+def build_execution_dimension_counts(gold: DataFrame) -> DataFrame:
+    """Count hardware executions across mapper-emitted dimensions."""
+    frames = (
+        _execution_dimension_count(gold, "board", ("board",), board="board"),
+        _execution_dimension_count(
+            gold,
+            "student_model",
+            ("student_model",),
+            student_model="student_model",
+        ),
+        _execution_dimension_count(
+            gold,
+            "true_class",
+            ("true_class_id", "true_class_name"),
+            class_id="true_class_id",
+            class_name="true_class_name",
+        ),
+        _execution_dimension_count(
+            gold,
+            "predicted_class",
+            ("predicted_class_id", "predicted_class_name"),
+            class_id="predicted_class_id",
+            class_name="predicted_class_name",
+        ),
+        _execution_dimension_count(
+            gold,
+            "board_student_model",
+            ("board", "student_model"),
+            board="board",
+            student_model="student_model",
+        ),
+    )
+    result = frames[0]
+    for frame in frames[1:]:
+        result = result.unionByName(frame)
+    return result
 
 
 def build_retention_metrics(gold: DataFrame, decisions: DataFrame) -> DataFrame:

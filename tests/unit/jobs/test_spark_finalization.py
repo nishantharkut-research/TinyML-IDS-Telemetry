@@ -789,6 +789,7 @@ def test_finalized_manifest_binds_receipt_digest_without_local_path(
         "e" * 64,
         ("retain-all-v1", "security-aware-static-v1"),
         completion_receipt_sha256=digest,
+        spark_aggregates_sha256="d" * 64,
     )
 
     assert manifest["completion_receipt_sha256"] == digest
@@ -888,6 +889,7 @@ def test_finalized_parent_publication_is_atomic_no_clobber_and_manifest_idempote
     dataset_names = {
         "canonical_gold",
         "policy_decisions",
+        "execution_dimension_counts",
         "operational_metrics",
         "predictive_row_metrics",
         "retention_metrics",
@@ -897,7 +899,11 @@ def test_finalized_parent_publication_is_atomic_no_clobber_and_manifest_idempote
     manifest = json.loads(first_manifest_bytes)
     assert manifest["schema_version"] == "telemetry-finalized-run-v1"
     assert manifest["snapshot_id"] == receipt["snapshot"]["snapshot_id"]
+    assert manifest["events_sha256"] == receipt["snapshot"]["events_sha256"]
     assert manifest["completion_receipt_sha256"] == sha256(receipt_path.read_bytes()).hexdigest()
+    aggregate_payload = (first.run_directory / "spark_aggregates.json").read_bytes()
+    assert manifest["spark_aggregates_sha256"] == sha256(aggregate_payload).hexdigest()
+    assert len(manifest["canonical_event_identity_sha256"]) == 64
     assert "completion_receipt_path" not in manifest
     assert "parquet_sha256" not in manifest
     assert set(manifest["outputs"]) == dataset_names
