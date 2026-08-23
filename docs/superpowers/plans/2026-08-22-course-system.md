@@ -167,13 +167,13 @@
 - Test: `tests/unit/jobs/test_reconciliation.py`
 - Test: `tests/integration/test_hadoop_streaming.py`
 
-- [ ] Write failing stdin/stdout tests for exact mapper keys and integer partials.
-- [ ] Implement a pure standard-library mapper.
-- [ ] Write failing reducer tests for deterministic aggregation and ordering.
-- [ ] Implement a pure standard-library reducer.
-- [ ] Write failing reconciliation tests that identify field-level mismatches.
-- [ ] Implement Spark/Hadoop comparison with exact count/sum equality and declared percentile tolerances.
-- [ ] Add an HDFS runner using the official Hadoop Streaming JAR.
+- [x] Write failing stdin/stdout tests for exact mapper keys and integer partials.
+- [x] Implement a pure standard-library mapper.
+- [x] Write failing reducer tests for deterministic aggregation and ordering.
+- [x] Implement a pure standard-library reducer.
+- [x] Write failing reconciliation tests that identify field-level mismatches.
+- [x] Implement Spark/Hadoop comparison with exact count/sum equality and declared percentile tolerances.
+- [x] Add an HDFS runner using the official Hadoop Streaming JAR.
 - [ ] Run local pipeline and Docker Hadoop integration tests; commit the batch oracle.
 
 ### Task 8: Local Infrastructure and Operations
