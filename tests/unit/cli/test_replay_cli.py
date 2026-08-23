@@ -182,6 +182,8 @@ def _arguments(snapshot: Path, output: Path) -> list[str]:
         "2026-08-23T12:00:00Z",
         "--interval-ms",
         "250",
+        "--receipt",
+        str(output.with_suffix(".receipt.json")),
         "--jsonl",
         str(output),
     ]
@@ -423,8 +425,12 @@ def test_jsonl_dry_run_never_imports_kafka_and_prints_compact_summary(
             "2",
         ]
     )
-
     assert exit_code == 0
+    receipt = json.loads(output.with_suffix(".receipt.json").read_text(encoding="utf-8"))
+    assert receipt["status"] == "completed"
+    assert receipt["snapshot"]["snapshot_id"] == _read_manifest(snapshot)["snapshot_id"]
+    assert receipt["observed_delivery_count"] == 5
+    assert receipt["expected_delivery_count"] == 5
     deliveries = [json.loads(line) for line in output.read_text().splitlines()]
     assert [item["source_offset"] for item in deliveries] == [1, 2, 1, 3, 3]
     assert [item["duplicate_ordinal"] for item in deliveries] == [0, 0, 1, 1, 0]
@@ -450,6 +456,77 @@ def test_jsonl_dry_run_never_imports_kafka_and_prints_compact_summary(
         )
         + "\n"
     )
+
+
+def test_replay_rejects_receipt_equal_to_jsonl_before_opening_sink(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = _snapshot(tmp_path)
+    output = tmp_path / "replay.jsonl"
+    arguments = _arguments(snapshot, output)
+    arguments[arguments.index("--receipt") + 1] = str(output)
+
+    class SinkMustNotOpen:
+        def __init__(self, destination: Path) -> None:
+            del destination
+            raise AssertionError("JSONL sink opened before receipt/output collision preflight")
+
+    monkeypatch.setattr(replay_cli, "JsonlSink", SinkMustNotOpen)
+
+    assert main(arguments) == 2
+    captured = capsys.readouterr()
+    assert "--receipt must differ from --jsonl" in captured.err
+    assert not output.exists()
+
+
+def test_replay_rejects_existing_completed_receipt_before_opening_sink(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = _snapshot(tmp_path)
+    output = tmp_path / "replay.jsonl"
+    arguments = _arguments(snapshot, output)
+    receipt_path = output.with_suffix(".receipt.json")
+
+    assert main(arguments) == 0
+    capsys.readouterr()
+    receipt_bytes = receipt_path.read_bytes()
+    output.unlink()
+
+    class SinkMustNotOpen:
+        def __init__(self, destination: Path) -> None:
+            del destination
+            raise AssertionError("JSONL sink opened despite an existing receipt")
+
+    monkeypatch.setattr(replay_cli, "JsonlSink", SinkMustNotOpen)
+
+    assert main(arguments) == 2
+    captured = capsys.readouterr()
+    assert "--receipt destination already exists" in captured.err
+    assert receipt_path.read_bytes() == receipt_bytes
+    assert not output.exists()
+
+
+def test_replay_does_not_publish_completion_receipt_when_sink_close_fails(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = _snapshot(tmp_path)
+    output = tmp_path / "unused.jsonl"
+    receipt = output.with_suffix(".receipt.json")
+    _CloseOnlyFailingKafkaSink.write_attempts = 0
+    _CloseOnlyFailingKafkaSink.close_attempts = 0
+    monkeypatch.setattr(kafka_module, "KafkaSink", _CloseOnlyFailingKafkaSink)
+    arguments = [*_arguments(snapshot, output)[:-2], "--kafka-topic", "telemetry"]
+
+    assert main(arguments) == 2
+
+    assert "Kafka replay failed" in capsys.readouterr().err
+    assert not receipt.exists()
 
 
 def test_controlled_rate_paces_every_delivery_and_reports_cli_mode(

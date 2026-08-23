@@ -25,6 +25,11 @@ from tinyml_ids_telemetry.evidence.catalog import ensure_output_outside_evidence
 from tinyml_ids_telemetry.evidence.hashes import sha256_handle
 from tinyml_ids_telemetry.replay.clock import SyntheticClock
 from tinyml_ids_telemetry.replay.pacing import DeliveryPacer
+from tinyml_ids_telemetry.replay.receipt import (
+    ReplayReceiptError,
+    build_completion_receipt,
+    publish_completion_receipt,
+)
 from tinyml_ids_telemetry.replay.schedule import DeliveryEnvelope, iter_replay_schedule
 from tinyml_ids_telemetry.replay.sink import JsonlSink, ReplaySink
 
@@ -41,6 +46,12 @@ class ReplayCommandErrorGroup(ExceptionGroup):
 class _VerifiedSnapshot:
     events_handle: BinaryIO
     event_count: int
+    snapshot_id: str
+    sealed_report_sha256: str
+    events_sha256: str
+    lineages_sha256: str
+    evaluation_sequence_sha256: str
+    lineage_ids: tuple[str, ...]
 
 
 def _positive_integer(value: str) -> int:
@@ -84,6 +95,7 @@ def configure_replay_parser(subparsers: Any) -> None:
     parser.add_argument("--resume-offset", type=_non_negative_integer, default=0)
     parser.add_argument("--duplicate-every", type=_positive_integer)
     parser.add_argument("--out-of-order-window", type=_positive_integer, default=1)
+    parser.add_argument("--receipt", type=Path, required=True)
     destination = parser.add_mutually_exclusive_group(required=True)
     destination.add_argument("--jsonl", type=Path)
     destination.add_argument("--kafka-topic")
@@ -144,6 +156,12 @@ def _verified_snapshot(snapshot_directory: Path) -> Iterator[_VerifiedSnapshot]:
         yield _VerifiedSnapshot(
             events_handle=events_handle,
             event_count=manifest.event_count,
+            snapshot_id=manifest.snapshot_id,
+            sealed_report_sha256=manifest.sealed_report_sha256,
+            events_sha256=manifest.events_sha256,
+            lineages_sha256=manifest.lineages_sha256,
+            evaluation_sequence_sha256=manifest.evaluation_sequence_sha256,
+            lineage_ids=manifest.lineage_ids,
         )
 
 
@@ -344,6 +362,15 @@ def _resolve_jsonl_destination(output_path: Path, snapshot_directory: Path) -> P
     return ensure_output_outside_evidence_roots(output_path, tuple(protected_roots))
 
 
+def _protected_replay_roots(snapshot_directory: Path) -> tuple[Path, ...]:
+    roots = [snapshot_directory.expanduser().resolve()]
+    for variable in ("CUKD_XAI_ROOT", "TINYML_IDS_EVIDENCE_ROOT"):
+        value = os.environ.get(variable)
+        if value is not None and value.strip():
+            roots.append(Path(value).expanduser().resolve())
+    return tuple(roots)
+
+
 def _write_deliveries(
     sink: ReplaySink,
     deliveries: Iterable[DeliveryEnvelope],
@@ -407,8 +434,20 @@ def run_replay_command(arguments: argparse.Namespace) -> int:
         raise ReplayCommandError(
             "--bootstrap-servers cannot be used with --jsonl; it is only valid for Kafka"
         )
+    if (
+        arguments.jsonl is not None
+        and arguments.receipt.expanduser().resolve() == arguments.jsonl.expanduser().resolve()
+    ):
+        raise ReplayCommandError("--receipt must differ from --jsonl")
 
     with _verified_snapshot(arguments.snapshot) as snapshot:
+        protected_roots = _protected_replay_roots(arguments.snapshot)
+        receipt_destination = ensure_output_outside_evidence_roots(
+            arguments.receipt,
+            protected_roots,
+        )
+        if receipt_destination.exists():
+            raise ReplayCommandError("--receipt destination already exists")
         try:
             interval = timedelta(milliseconds=arguments.interval_ms)
         except OverflowError as error:
@@ -457,6 +496,34 @@ def run_replay_command(arguments: argparse.Namespace) -> int:
         except ReplayCommandError:
             raise
         except ValueError as error:
+            raise ReplayCommandError(str(error)) from error
+
+        receipt = build_completion_receipt(
+            replay_run_id=arguments.run_id,
+            snapshot_id=snapshot.snapshot_id,
+            sealed_report_sha256=snapshot.sealed_report_sha256,
+            events_sha256=snapshot.events_sha256,
+            lineages_sha256=snapshot.lineages_sha256,
+            evaluation_sequence_sha256=snapshot.evaluation_sequence_sha256,
+            snapshot_event_count=snapshot.event_count,
+            snapshot_lineage_ids=snapshot.lineage_ids,
+            start_utc=DeliveryEnvelope.format_event_time(arguments.start_utc),
+            interval_ms=arguments.interval_ms,
+            rate_per_second=arguments.rate_per_second,
+            resume_offset=arguments.resume_offset,
+            duplicate_every=arguments.duplicate_every,
+            out_of_order_window=arguments.out_of_order_window,
+            destination=destination,
+            kafka_topic=arguments.kafka_topic if destination == "kafka" else None,
+            observed_delivery_count=delivery_count,
+        )
+        try:
+            publish_completion_receipt(
+                receipt_destination,
+                receipt,
+                protected_roots=protected_roots,
+            )
+        except ReplayReceiptError as error:
             raise ReplayCommandError(str(error)) from error
 
         summary: dict[str, object] = {

@@ -76,6 +76,8 @@ class SchemaContractError(ValueError):
 class ValidatedSnapshotManifest:
     """Manifest fields needed to verify the immutable snapshot payload."""
 
+    snapshot_id: str
+    sealed_report_sha256: str
     event_count: int
     lineage_count: int
     rows_per_lineage: int
@@ -181,6 +183,8 @@ def validate_snapshot_manifest_mapping(value: object) -> ValidatedSnapshotManife
         )
 
     return ValidatedSnapshotManifest(
+        snapshot_id=snapshot_id,
+        sealed_report_sha256=sealed_report_sha256,
         event_count=event_count,
         lineage_count=lineage_count,
         rows_per_lineage=rows_per_lineage,
