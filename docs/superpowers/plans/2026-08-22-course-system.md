@@ -224,15 +224,16 @@
 - Create: `.github/workflows/ci.yml`
 - Modify: `README.md`
 
-- [ ] Run formatting, linting, typing, unit, contract, property, and fixture E2E tests.
-- [ ] Start Docker and run Kafka, Spark, HDFS, Hadoop, restart-recovery, duplicate, and out-of-order integration tests.
-- [ ] Run the four-lineage evidence audit and full 225,204-record replay.
+- [x] Run formatting, linting, typing, unit, contract, property, and fixture E2E tests.
+- [x] Start Docker and run Kafka, Spark, HDFS, Hadoop, restart-recovery, duplicate, and out-of-order integration tests.
+- [x] Run the four-lineage evidence audit.
+- [ ] Run the full 225,204-record replay on the designated execution machine.
 - [ ] Reconcile Spark and Hadoop exact aggregates.
 - [ ] Record throughput and storage results without predictive-sample or network-latency overclaims.
-- [ ] Have independent agents review evidence boundaries, distributed correctness, tests, and documentation.
-- [ ] Correct all verified findings and rerun the complete verification matrix.
-- [ ] Add CI for non-Docker tests and Compose validation.
-- [ ] Commit the verified course baseline.
+- [x] Have independent agents review evidence boundaries, distributed correctness, tests, and documentation.
+- [x] Correct verified software findings and rerun the complete host verification matrix.
+- [x] Add CI for non-Docker tests and Compose validation.
+- [x] Commit the verified course baseline.
 
 ## Plan Self-Review
 

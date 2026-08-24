@@ -166,7 +166,7 @@ that the model predicted as Normal.
 
 - Kafka topics, partitions, keys, offsets, ordering, and at-least-once delivery;
 - synthetic event time versus ingestion and processing time;
-- tumbling windows, watermarks, late records, and stateful deduplication;
+- synthetic event time, watermarks, bounded disorder, and stateful deduplication;
 - checkpoints, restart recovery, backpressure, and idempotent finalization;
 - HDFS raw and curated zones;
 - Parquet schema, compression, partition pruning, and predicate pushdown;
@@ -191,7 +191,7 @@ counts. Approximate percentiles are compared only with declared tolerances.
 | Normal replay | End-to-end correctness and baseline throughput |
 | Accelerated replay | Throughput, queue growth, and backpressure |
 | Duplicate injection | Bronze duplicates and stable Gold results |
-| Out-of-order replay | Watermark and late-event behavior |
+| Out-of-order replay | Watermark-bounded disorder with no scheduled late loss |
 | Restart recovery | Offset/checkpoint recovery and idempotent finalization |
 | Retain all | Storage and query reference |
 | Security-aware retention | Alert preservation and storage/query trade-off |

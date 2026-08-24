@@ -23,7 +23,7 @@ the need to verify analytical results.
 | At-least-once delivery | Controlled duplicate injection and restart | Bronze preserves deliveries while Gold removes duplicate source identities |
 | Event time | Deterministic synthetic replay timestamp | Repeatable windows independent of host clock variation |
 | Processing time | Spark execution clock | Pipeline timing separated from source MCU timing |
-| Watermark | Bounded late-data policy in Spark | Declared handling of reordered and late records |
+| Watermark | Bounded event-time state in Spark | Delay derived from and strictly above the controlled replay skew |
 | Stateful deduplication | Watermark-bounded Silver deduplication | Duplicate control with finite streaming state |
 | Bronze layer | Append-only Kafka delivery archive | Topic, partition, offset, headers, timestamp, and original payload |
 | Silver layer | Typed valid events plus quarantine | Schema validation, deterministic reasons, and data-quality counts |
@@ -44,7 +44,7 @@ the need to verify analytical results.
 | Uniqueness | Stable source-event identity detects repeated deliveries |
 | Validity | JSON Schema, class mapping, logits, scale, and typed fields validate |
 | Consistency | MCU and fixed-reference predictions and logits agree before replay |
-| Timeliness | Watermark and late-event outcomes are recorded under synthetic event time |
+| Timeliness | Reordered events remain complete under the declared synthetic-time bound |
 | Verifiability | Spark exact aggregates reconcile with an independent Hadoop oracle |
 
 ## The Five Vs

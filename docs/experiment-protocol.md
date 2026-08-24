@@ -64,6 +64,18 @@ Kafka configuration.
 - finalization wall-clock duration
 - maximum observed Kafka lag when available
 
+The production driver publishes these run-bound measurements to
+`artifacts/course/runs/<run-id>/pipeline_execution.json`. The document records
+actual phase durations, replay and finalized rates, source and delivery counts,
+the replay-recovery state, and byte totals for streaming and finalized output
+trees. The course report consumes this file directly. Rates must not be copied
+from console output or inferred from configured replay targets.
+
+For restart recovery, scheduled and acknowledged counts describe only the
+resumed replay tail. Snapshot and finalized counts describe the complete run.
+These quantities remain separate in the execution report and must not be
+substituted for one another.
+
 Throughput measures the analytics replay pipeline. It does not measure physical
 MCU transmission throughput. MCU timing and Wi-Fi round-trip fields are frozen
 source observations and are reported separately from pipeline wall-clock time.
@@ -75,6 +87,11 @@ source observations and are reported separately from pipeline wall-clock time.
 - retained predicted-attack count and rate
 - offline retained actual-attack count and rate
 - count by policy decision reason
+
+`canonical_gold` is the retain-all storage reference. The separately
+materialized `retained_security_aware` Parquet view is the measured
+security-aware output. Storage reduction is computed from their recorded byte
+totals only after both outputs are finalized.
 
 Online retention decisions cannot use the true label. Actual-attack retention
 is an offline labeled evaluation only.
@@ -107,9 +124,10 @@ deduplication, and Gold exact deduplication.
 ### E4. Out-of-order delivery
 
 Apply a deterministic reordering window while keeping the event payload and
-source identity unchanged. Measure records accepted within the watermark,
-records treated as late, quarantine reasons, and final Gold completeness. This
-experiment demonstrates event time, watermarks, and bounded streaming state.
+source identity unchanged. The declared watermark must strictly exceed the
+maximum skew introduced by that schedule. Verify bounded streaming
+deduplication and complete final Gold output with no schedule-induced loss. A
+watermark that is too short must be rejected before Spark starts.
 
 ### E5. Restart recovery
 
