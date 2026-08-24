@@ -120,9 +120,7 @@ def load_catalog(
     sealed_report_sha256 = _require_digest(data, "sealed_report_sha256", "catalog")
     bundle_value = data.get("evidence_bundle_id")
     evidence_bundle_id = (
-        None
-        if bundle_value is None
-        else _require_digest(data, "evidence_bundle_id", "catalog")
+        None if bundle_value is None else _require_digest(data, "evidence_bundle_id", "catalog")
     )
 
     protected_candidates = [root]

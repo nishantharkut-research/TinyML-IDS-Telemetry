@@ -91,6 +91,7 @@ COPY queries ./queries
 COPY schemas ./schemas
 COPY scripts ./scripts
 COPY src ./src
+COPY dashboard ./dashboard
 COPY tests ./tests
 
 RUN python3 -m pip install --no-cache-dir \

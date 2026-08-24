@@ -1,2 +1,1 @@
 """Stable telemetry contracts."""
-

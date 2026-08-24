@@ -238,6 +238,7 @@ def test_container_python_dependencies_are_exactly_constrained() -> None:
     for dockerfile in (SPARK_DOCKERFILE, HADOOP_DOCKERFILE):
         source = dockerfile.read_text(encoding="utf-8")
         assert "COPY infra/container-constraints.txt ./infra/container-constraints.txt" in source
+        assert "COPY dashboard ./dashboard" in source
         assert "--constraint infra/container-constraints.txt" in source
 
 

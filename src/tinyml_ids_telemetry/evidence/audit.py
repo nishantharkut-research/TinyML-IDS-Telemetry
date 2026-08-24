@@ -526,7 +526,9 @@ def audit_catalog(catalog: EvidenceCatalog) -> EvidenceAudit:
             if event.source_event_id in source_event_ids:
                 raise EvidenceContractError("source_event_id must be globally unique")
             source_event_ids.add(event.source_event_id)
-            sequence_digest.update(f"{event.source_row_index}|{event.true_class_id}\n".encode("ascii"))
+            sequence_digest.update(
+                f"{event.source_row_index}|{event.true_class_id}\n".encode("ascii")
+            )
             lineage_count += 1
         if lineage_count != lineage.expected_rows:
             raise EvidenceContractError("validated lineage row count mismatch")

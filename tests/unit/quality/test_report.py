@@ -66,10 +66,35 @@ def _reconciliation(*, matched: bool = True) -> dict[str, object]:
     }
 
 
+def _pipeline_execution() -> dict[str, object]:
+    return {
+        "schema_version": "telemetry-pipeline-execution-v1",
+        "replay_run_id": "course-demo",
+        "replay_executed": True,
+        "counts": {
+            "snapshot_source_event_count": 225_204,
+            "scheduled_source_event_count": 225_204,
+            "scheduled_delivery_count": 247_725,
+            "acknowledged_delivery_count": 247_725,
+            "finalized_source_event_count": 225_204,
+            "finalized_delivery_count": 247_725,
+        },
+        "phase_seconds": {"replay": 100.0, "total": 150.0},
+        "rates_per_second": {
+            "acknowledged_replay_delivery_rate": 2477.25,
+            "finalized_source_event_rate": 1501.36,
+        },
+        "storage_bytes": {
+            "finalized/canonical_gold": 10_000_000,
+            "finalized/retained_security_aware": 4_000_000,
+        },
+    }
+
+
 def test_course_report_separates_deliveries_executions_and_predictive_rows(
     tmp_path: Path,
 ) -> None:
-    report = build_course_report(_run(tmp_path), _reconciliation())
+    report = build_course_report(_run(tmp_path), _reconciliation(), _pipeline_execution())
 
     assert report["schema_version"] == "tinyml-ids-course-report-v1"
     assert report["counts"] == {
@@ -79,6 +104,8 @@ def test_course_report_separates_deliveries_executions_and_predictive_rows(
         "unique_predictive_row_count": 56_301,
     }
     assert report["reconciliation"] == {"difference_count": 0, "matched": True}
+    assert report["pipeline"]["rates_per_second"]["acknowledged_replay_delivery_rate"] == 2477.25
+    assert report["pipeline"]["storage_bytes"]["finalized/retained_security_aware"] == 4_000_000
 
     markdown = render_course_report_markdown(report)
     assert "225,204 hardware executions" in markdown
@@ -86,11 +113,17 @@ def test_course_report_separates_deliveries_executions_and_predictive_rows(
     assert "247,725 replay deliveries" in markdown
     assert "225,204 samples" not in markdown
     assert "not 225,204 independent predictive samples" in markdown
+    assert "2,477.25 replay deliveries/s" in markdown
+    assert "4,000,000 bytes" in markdown
 
 
 def test_course_report_rejects_failed_reconciliation(tmp_path: Path) -> None:
     with pytest.raises(CourseReportError, match="reconciliation did not match"):
-        build_course_report(_run(tmp_path), _reconciliation(matched=False))
+        build_course_report(
+            _run(tmp_path),
+            _reconciliation(matched=False),
+            _pipeline_execution(),
+        )
 
 
 def test_course_report_rejects_reconciliation_from_another_run(tmp_path: Path) -> None:
@@ -102,11 +135,54 @@ def test_course_report_rejects_reconciliation_from_another_run(tmp_path: Path) -
     spark["replay_run_id"] = "another-run"
 
     with pytest.raises(CourseReportError, match="replay_run_id"):
-        build_course_report(_run(tmp_path), reconciliation)
+        build_course_report(_run(tmp_path), reconciliation, _pipeline_execution())
+
+
+def test_course_report_rejects_pipeline_execution_from_another_run(tmp_path: Path) -> None:
+    execution = _pipeline_execution()
+    execution["replay_run_id"] = "another-run"
+
+    with pytest.raises(CourseReportError, match="pipeline execution replay_run_id"):
+        build_course_report(_run(tmp_path), _reconciliation(), execution)
+
+
+def test_course_report_accepts_receipt_recovery_counts(tmp_path: Path) -> None:
+    execution = _pipeline_execution()
+    execution["replay_executed"] = False
+    counts = execution["counts"]
+    assert isinstance(counts, dict)
+    counts["scheduled_source_event_count"] = 100_000
+    counts["scheduled_delivery_count"] = 110_000
+    counts["acknowledged_delivery_count"] = 110_000
+    rates = execution["rates_per_second"]
+    assert isinstance(rates, dict)
+    rates["acknowledged_replay_delivery_rate"] = None
+
+    report = build_course_report(_run(tmp_path), _reconciliation(), execution)
+
+    assert report["pipeline"]["replay_executed"] is False
+
+
+def test_course_report_rejects_rate_for_receipt_recovery(tmp_path: Path) -> None:
+    execution = _pipeline_execution()
+    execution["replay_executed"] = False
+
+    with pytest.raises(CourseReportError, match="replay rate conflicts"):
+        build_course_report(_run(tmp_path), _reconciliation(), execution)
+
+
+def test_course_report_rejects_replay_duration_above_total(tmp_path: Path) -> None:
+    execution = _pipeline_execution()
+    phases = execution["phase_seconds"]
+    assert isinstance(phases, dict)
+    phases["replay"] = 151.0
+
+    with pytest.raises(CourseReportError, match="phase_seconds are inconsistent"):
+        build_course_report(_run(tmp_path), _reconciliation(), execution)
 
 
 def test_publish_course_report_writes_canonical_json_and_markdown(tmp_path: Path) -> None:
-    report = build_course_report(_run(tmp_path), _reconciliation())
+    report = build_course_report(_run(tmp_path), _reconciliation(), _pipeline_execution())
     output = tmp_path / "report"
 
     paths = publish_course_report(output, report)
@@ -130,6 +206,11 @@ def test_report_command_publishes_from_finalized_run_and_reconciliation(
         json.dumps(_reconciliation(), sort_keys=True, separators=(",", ":")) + "\n",
         encoding="ascii",
     )
+    pipeline_execution_path = tmp_path / "pipeline_execution.json"
+    pipeline_execution_path.write_text(
+        json.dumps(_pipeline_execution(), sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="ascii",
+    )
     output = tmp_path / "published"
     monkeypatch.setattr(module, "load_finalized_run", lambda path: _run(tmp_path))
 
@@ -137,6 +218,7 @@ def test_report_command_publishes_from_finalized_run_and_reconciliation(
         Namespace(
             finalized_run=tmp_path / "finalized",
             reconciliation=reconciliation_path,
+            pipeline_execution=pipeline_execution_path,
             output=output,
         )
     )

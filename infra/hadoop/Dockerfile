@@ -37,6 +37,7 @@ COPY queries ./queries
 COPY schemas ./schemas
 COPY scripts ./scripts
 COPY src ./src
+COPY dashboard ./dashboard
 COPY tests ./tests
 COPY infra/hadoop/conf/ /opt/hadoop/etc/hadoop/
 COPY infra/hadoop/hadoop-entrypoint.sh /usr/local/bin/hadoop-entrypoint.sh

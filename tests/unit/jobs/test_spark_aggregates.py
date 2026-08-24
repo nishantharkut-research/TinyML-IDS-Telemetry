@@ -264,6 +264,22 @@ def test_finalized_outputs_include_execution_dimension_counts(
     assert outputs["execution_dimension_counts"].count() == 6
 
 
+def test_finalized_outputs_materialize_security_aware_retained_events(
+    spark: SparkSession,
+    event_factory: Any,
+    envelope_factory: Any,
+    kafka_frame_factory: Any,
+) -> None:
+    gold = _gold(spark, event_factory, envelope_factory, kafka_frame_factory)
+
+    outputs = finalization_module._build_finalized_outputs(gold)
+    retained = outputs["retained_security_aware"].collect()
+
+    assert len(retained) == 1
+    assert retained[0].source_event_id == "1" * 64
+    assert retained[0].predicted_class_id == 0
+
+
 def test_finalized_aggregate_bundle_is_canonical_and_excludes_row_level_datasets(
     spark: SparkSession,
     event_factory: Any,

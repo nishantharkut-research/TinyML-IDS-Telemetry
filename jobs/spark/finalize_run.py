@@ -72,13 +72,20 @@ _DEFAULT_POLICY_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "rete
 _OUTPUT_NAMES = (
     "canonical_gold",
     "policy_decisions",
+    "retained_security_aware",
     "execution_dimension_counts",
     "operational_metrics",
     "predictive_row_metrics",
     "retention_metrics",
     "retention_reason_counts",
 )
-_AGGREGATE_OUTPUT_NAMES = _OUTPUT_NAMES[2:]
+_AGGREGATE_OUTPUT_NAMES = (
+    "execution_dimension_counts",
+    "operational_metrics",
+    "predictive_row_metrics",
+    "retention_metrics",
+    "retention_reason_counts",
+)
 
 
 class GoldFinalizationError(ValueError):
@@ -670,9 +677,17 @@ def _manifest(
 
 def _build_finalized_outputs(gold: DataFrame) -> dict[str, DataFrame]:
     decisions = build_policy_decisions(gold)
+    retained_security_aware = gold.join(
+        decisions.filter(
+            (F.col("policy_id") == F.lit("security-aware-static-v1")) & F.col("retained")
+        ).select("replay_run_id", "source_event_id"),
+        ["replay_run_id", "source_event_id"],
+        "inner",
+    )
     return {
         "canonical_gold": gold,
         "policy_decisions": decisions,
+        "retained_security_aware": retained_security_aware,
         "execution_dimension_counts": build_execution_dimension_counts(gold),
         "operational_metrics": build_operational_metrics(gold),
         "predictive_row_metrics": build_predictive_row_metrics(gold),

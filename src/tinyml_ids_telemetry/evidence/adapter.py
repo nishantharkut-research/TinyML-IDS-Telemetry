@@ -204,9 +204,7 @@ def iter_lineage_events(
                     ignored_bad_inner_hex_count=_required_int(
                         mcu_row, "ignored_bad_inner_hex_count", context
                     ),
-                    ignored_bad_crc_count=_required_int(
-                        mcu_row, "ignored_bad_crc_count", context
-                    ),
+                    ignored_bad_crc_count=_required_int(mcu_row, "ignored_bad_crc_count", context),
                     ignored_bad_inner_text_count=_required_int(
                         mcu_row, "ignored_bad_inner_text_count", context
                     ),

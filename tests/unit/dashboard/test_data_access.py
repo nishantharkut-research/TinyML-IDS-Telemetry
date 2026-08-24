@@ -9,7 +9,13 @@ from pathlib import Path
 import pytest
 
 from dashboard.app import build_dashboard_views
-from dashboard.data import FinalizedRun, FinalizedRunError, load_course_report, load_finalized_run
+from dashboard.data import (
+    CourseReportSummary,
+    FinalizedRun,
+    FinalizedRunError,
+    load_course_report,
+    load_finalized_run,
+)
 
 OUTPUTS = {
     "canonical_gold",
@@ -17,6 +23,7 @@ OUTPUTS = {
     "operational_metrics",
     "policy_decisions",
     "predictive_row_metrics",
+    "retained_security_aware",
     "retention_metrics",
     "retention_reason_counts",
 }
@@ -64,7 +71,16 @@ def _finalized_run(tmp_path: Path) -> Path:
         "source_event_count": 225_204,
         "delivery_count": 225_204,
         "spark_aggregates_sha256": sha256(aggregate_payload).hexdigest(),
-        "outputs": {name: {"row_count": 1} for name in sorted(OUTPUTS)},
+        "outputs": {
+            "canonical_gold": {"row_count": 225_204},
+            "execution_dimension_counts": {"row_count": 0},
+            "operational_metrics": {"row_count": 1},
+            "policy_decisions": {"row_count": 450_408},
+            "predictive_row_metrics": {"row_count": 1},
+            "retained_security_aware": {"row_count": 100_000},
+            "retention_metrics": {"row_count": 0},
+            "retention_reason_counts": {"row_count": 0},
+        },
         "statistical_unit": (
             "rows are hardware executions; repeated source_row_index values across lineages "
             "are not independent predictive rows"
@@ -72,6 +88,32 @@ def _finalized_run(tmp_path: Path) -> Path:
     }
     (run / "finalized_run_manifest.json").write_bytes(_canonical(manifest))
     return run
+
+
+def _course_report() -> dict[str, object]:
+    return {
+        "schema_version": "tinyml-ids-course-report-v1",
+        "replay_run_id": "course-demo",
+        "counts": {
+            "execution_lineage_count": 4,
+            "hardware_execution_count": 225_204,
+            "replay_delivery_count": 225_204,
+            "unique_predictive_row_count": 56_301,
+        },
+        "reconciliation": {"difference_count": 0, "matched": True},
+        "pipeline": {
+            "replay_executed": True,
+            "phase_seconds": {"replay": 100.0, "total": 150.0},
+            "rates_per_second": {
+                "acknowledged_replay_delivery_rate": 2252.04,
+                "finalized_source_event_rate": 1501.36,
+            },
+            "storage_bytes": {
+                "finalized/canonical_gold": 10_000_000,
+                "finalized/retained_security_aware": 4_000_000,
+            },
+        },
+    }
 
 
 def test_load_finalized_run_reads_only_manifest_bound_aggregates(tmp_path: Path) -> None:
@@ -101,26 +143,45 @@ def test_load_finalized_run_rejects_aggregate_mutation(tmp_path: Path) -> None:
         load_finalized_run(run)
 
 
+def test_load_finalized_run_rejects_manifest_row_count_mismatch(tmp_path: Path) -> None:
+    run = _finalized_run(tmp_path)
+    manifest_path = run / "finalized_run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="ascii"))
+    manifest["outputs"]["operational_metrics"]["row_count"] = 2
+    manifest_path.write_bytes(_canonical(manifest))
+
+    with pytest.raises(FinalizedRunError, match="operational_metrics row_count"):
+        load_finalized_run(run)
+
+
 def test_load_course_report_requires_matching_reconciled_run(tmp_path: Path) -> None:
     run = load_finalized_run(_finalized_run(tmp_path))
     report_path = tmp_path / "course_report.json"
-    report = {
-        "schema_version": "tinyml-ids-course-report-v1",
-        "replay_run_id": "course-demo",
-        "counts": {
-            "execution_lineage_count": 4,
-            "hardware_execution_count": 225_204,
-            "replay_delivery_count": 225_204,
-            "unique_predictive_row_count": 56_301,
-        },
-        "reconciliation": {"difference_count": 0, "matched": True},
-    }
-    report_path.write_bytes(_canonical(report))
+    report_path.write_bytes(_canonical(_course_report()))
 
     result = load_course_report(report_path, run)
 
     assert result.reconciliation_matched is True
     assert result.unique_predictive_row_count == 56_301
+    assert result.pipeline_total_seconds == 150.0
+    assert result.acknowledged_replay_delivery_rate == 2252.04
+    assert result.retained_security_aware_bytes == 4_000_000
+
+
+def test_load_course_report_accepts_retained_file_overhead(tmp_path: Path) -> None:
+    run = load_finalized_run(_finalized_run(tmp_path))
+    report_path = tmp_path / "course_report.json"
+    report = _course_report()
+    pipeline = report["pipeline"]
+    assert isinstance(pipeline, dict)
+    storage = pipeline["storage_bytes"]
+    assert isinstance(storage, dict)
+    storage["finalized/retained_security_aware"] = 11_000_000
+    report_path.write_bytes(_canonical(report))
+
+    result = load_course_report(report_path, run)
+
+    assert result.retained_security_aware_bytes == 11_000_000
 
 
 def test_load_course_report_rejects_foreign_run(tmp_path: Path) -> None:
@@ -217,7 +278,22 @@ def test_dashboard_views_derive_only_declared_finalized_metrics(tmp_path: Path) 
         },
     )
 
-    views = build_dashboard_views(run)
+    report = CourseReportSummary(
+        replay_run_id=replay_run_id,
+        reconciliation_matched=True,
+        execution_lineage_count=4,
+        hardware_execution_count=100,
+        replay_delivery_count=110,
+        unique_predictive_row_count=25,
+        replay_executed=True,
+        pipeline_total_seconds=8.0,
+        acknowledged_replay_delivery_rate=22.0,
+        finalized_source_event_rate=12.5,
+        canonical_gold_bytes=5_000,
+        retained_security_aware_bytes=2_000,
+    )
+
+    views = build_dashboard_views(run, report)
 
     assert views.overview["duplicate_delivery_count"] == 10
     assert views.overview["unique_predictive_row_count"] == 25
@@ -228,6 +304,8 @@ def test_dashboard_views_derive_only_declared_finalized_metrics(tmp_path: Path) 
     assert views.quality["retry_count"] == 4
     assert views.predicted_classes[1]["class_name"] == "Flooding"
     assert views.retention[0]["retention_rate"] == 1.0
+    assert views.pipeline["total_seconds"] == 8.0
+    assert views.pipeline["retained_storage_ratio"] == 0.4
 
 
 def test_streamlit_entrypoint_imports_from_outside_checkout(tmp_path: Path) -> None:

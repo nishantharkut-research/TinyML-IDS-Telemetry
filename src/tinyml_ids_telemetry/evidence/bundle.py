@@ -322,10 +322,7 @@ def create_evidence_bundle(
         evaluation_sequence_sha256=audit.evaluation_sequence_sha256,
         artifacts=artifacts,
     )
-    if (
-        catalog.evidence_bundle_id is not None
-        and manifest.bundle_id != catalog.evidence_bundle_id
-    ):
+    if catalog.evidence_bundle_id is not None and manifest.bundle_id != catalog.evidence_bundle_id:
         raise EvidenceContractError("evidence bundle external trust anchor mismatch")
 
     with TemporaryDirectory(prefix=".evidence-bundle-", dir=output.parent) as temporary:
@@ -343,8 +340,7 @@ def create_evidence_bundle(
                 name: replace(
                     model,
                     preprocess_metadata=(
-                        staging
-                        / model.preprocess_metadata.relative_to(catalog.evidence_root)
+                        staging / model.preprocess_metadata.relative_to(catalog.evidence_root)
                     ),
                 )
                 for name, model in catalog.models.items()
@@ -353,8 +349,7 @@ def create_evidence_bundle(
                 replace(
                     lineage,
                     completion_manifest=(
-                        staging
-                        / lineage.completion_manifest.relative_to(catalog.evidence_root)
+                        staging / lineage.completion_manifest.relative_to(catalog.evidence_root)
                     ),
                     compile_record=(
                         staging / lineage.compile_record.relative_to(catalog.evidence_root)

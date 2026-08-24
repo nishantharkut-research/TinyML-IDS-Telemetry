@@ -889,6 +889,7 @@ def test_finalized_parent_publication_is_atomic_no_clobber_and_manifest_idempote
     dataset_names = {
         "canonical_gold",
         "policy_decisions",
+        "retained_security_aware",
         "execution_dimension_counts",
         "operational_metrics",
         "predictive_row_metrics",

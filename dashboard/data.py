@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -19,11 +20,16 @@ _OUTPUTS = frozenset(
         "operational_metrics",
         "policy_decisions",
         "predictive_row_metrics",
+        "retained_security_aware",
         "retention_metrics",
         "retention_reason_counts",
     }
 )
-_AGGREGATES = _OUTPUTS - {"canonical_gold", "policy_decisions"}
+_AGGREGATES = _OUTPUTS - {
+    "canonical_gold",
+    "policy_decisions",
+    "retained_security_aware",
+}
 
 
 class FinalizedRunError(ValueError):
@@ -51,6 +57,12 @@ class CourseReportSummary:
     hardware_execution_count: int
     replay_delivery_count: int
     unique_predictive_row_count: int
+    replay_executed: bool
+    pipeline_total_seconds: float
+    acknowledged_replay_delivery_rate: float | None
+    finalized_source_event_rate: float
+    canonical_gold_bytes: int
+    retained_security_aware_bytes: int
 
 
 def _read_json_object(path: Path, label: str) -> tuple[dict[str, object], bytes]:
@@ -73,6 +85,14 @@ def _nonnegative_int(value: object, field: str) -> int:
     return value
 
 
+def _output_row_count(outputs: Mapping[str, object], output: str) -> int:
+    raw_metadata = outputs.get(output)
+    if not isinstance(raw_metadata, Mapping):
+        raise FinalizedRunError(f"finalized manifest {output} metadata must be an object")
+    metadata = cast(Mapping[str, object], raw_metadata)
+    return _nonnegative_int(metadata.get("row_count"), f"{output} row_count")
+
+
 def load_finalized_run(run_directory: Path) -> FinalizedRun:
     """Load aggregate tables only after validating the finalized publication contract."""
     run = run_directory.expanduser().resolve()
@@ -87,9 +107,11 @@ def load_finalized_run(run_directory: Path) -> FinalizedRun:
     if replay_run_id != match.group(1):
         raise FinalizedRunError("finalized manifest replay_run_id does not match its directory")
 
-    outputs = manifest.get("outputs")
-    if not isinstance(outputs, dict) or set(outputs) != _OUTPUTS:
+    raw_outputs = manifest.get("outputs")
+    if not isinstance(raw_outputs, Mapping) or set(raw_outputs) != _OUTPUTS:
         raise FinalizedRunError("finalized manifest must declare the exact output set")
+    outputs = cast(Mapping[str, object], raw_outputs)
+    output_row_counts = {output: _output_row_count(outputs, output) for output in sorted(_OUTPUTS)}
     for output in sorted(_OUTPUTS):
         if not (run / output / "_SUCCESS").is_file():
             raise FinalizedRunError(f"{output} is missing its _SUCCESS marker")
@@ -113,12 +135,24 @@ def load_finalized_run(run_directory: Path) -> FinalizedRun:
             raise FinalizedRunError(
                 f"aggregate table {table_name} contains a foreign replay_run_id"
             )
+        if len(rows) != output_row_counts[table_name]:
+            raise FinalizedRunError(
+                f"aggregate table {table_name} row_count does not match the finalized manifest"
+            )
         tables[table_name] = tuple(MappingProxyType(dict(row)) for row in rows)
 
     source_event_count = _nonnegative_int(manifest.get("source_event_count"), "source_event_count")
     delivery_count = _nonnegative_int(manifest.get("delivery_count"), "delivery_count")
     if source_event_count == 0 or delivery_count < source_event_count:
         raise FinalizedRunError("finalized manifest has inconsistent source and delivery counts")
+    if output_row_counts["canonical_gold"] != source_event_count:
+        raise FinalizedRunError("canonical_gold row_count does not match source_event_count")
+    if output_row_counts["policy_decisions"] != 2 * source_event_count:
+        raise FinalizedRunError(
+            "policy_decisions row_count does not match the two declared policies"
+        )
+    if output_row_counts["retained_security_aware"] > source_event_count:
+        raise FinalizedRunError("retained_security_aware row_count exceeds source_event_count")
 
     return FinalizedRun(
         run_directory=run,
@@ -134,6 +168,15 @@ def _report_count(counts: Mapping[str, object], field: str) -> int:
     if type(value) is not int or value < 0:
         raise FinalizedRunError(f"course report {field} must be a nonnegative integer")
     return value
+
+
+def _report_number(value: object, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise FinalizedRunError(f"course report {field} must be numeric")
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise FinalizedRunError(f"course report {field} must be finite and nonnegative")
+    return result
 
 
 def load_course_report(report_path: Path, run: FinalizedRun) -> CourseReportSummary:
@@ -165,6 +208,50 @@ def load_course_report(report_path: Path, run: FinalizedRun) -> CourseReportSumm
     if reconciliation.get("matched") is not True or reconciliation.get("difference_count") != 0:
         raise FinalizedRunError("course report does not record exact reconciliation")
 
+    raw_pipeline = report.get("pipeline")
+    if not isinstance(raw_pipeline, Mapping):
+        raise FinalizedRunError("course report pipeline must be a JSON object")
+    pipeline = cast(Mapping[str, object], raw_pipeline)
+    replay_executed = pipeline.get("replay_executed")
+    if type(replay_executed) is not bool:
+        raise FinalizedRunError("course report replay_executed must be boolean")
+
+    raw_phases = pipeline.get("phase_seconds")
+    if not isinstance(raw_phases, Mapping):
+        raise FinalizedRunError("course report phase_seconds must be a JSON object")
+    total_seconds = _report_number(raw_phases.get("total"), "phase_seconds.total")
+    _report_number(raw_phases.get("replay"), "phase_seconds.replay")
+    if total_seconds == 0:
+        raise FinalizedRunError("course report pipeline total duration must be positive")
+
+    raw_rates = pipeline.get("rates_per_second")
+    if not isinstance(raw_rates, Mapping):
+        raise FinalizedRunError("course report rates_per_second must be a JSON object")
+    acknowledged_value = raw_rates.get("acknowledged_replay_delivery_rate")
+    acknowledged_rate = (
+        None
+        if acknowledged_value is None
+        else _report_number(
+            acknowledged_value,
+            "rates_per_second.acknowledged_replay_delivery_rate",
+        )
+    )
+    if replay_executed is (acknowledged_rate is None):
+        raise FinalizedRunError("course report replay rate conflicts with replay execution state")
+    finalized_rate = _report_number(
+        raw_rates.get("finalized_source_event_rate"),
+        "rates_per_second.finalized_source_event_rate",
+    )
+
+    raw_storage = pipeline.get("storage_bytes")
+    if not isinstance(raw_storage, Mapping):
+        raise FinalizedRunError("course report storage_bytes must be a JSON object")
+    storage = cast(Mapping[str, object], raw_storage)
+    canonical_bytes = _report_count(storage, "finalized/canonical_gold")
+    retained_bytes = _report_count(storage, "finalized/retained_security_aware")
+    if canonical_bytes == 0:
+        raise FinalizedRunError("course report canonical Gold storage bytes must be positive")
+
     return CourseReportSummary(
         replay_run_id=run.replay_run_id,
         reconciliation_matched=True,
@@ -172,4 +259,10 @@ def load_course_report(report_path: Path, run: FinalizedRun) -> CourseReportSumm
         hardware_execution_count=hardware,
         replay_delivery_count=deliveries,
         unique_predictive_row_count=predictive_rows,
+        replay_executed=replay_executed,
+        pipeline_total_seconds=total_seconds,
+        acknowledged_replay_delivery_rate=acknowledged_rate,
+        finalized_source_event_rate=finalized_rate,
+        canonical_gold_bytes=canonical_bytes,
+        retained_security_aware_bytes=retained_bytes,
     )

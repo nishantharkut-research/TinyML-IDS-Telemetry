@@ -28,6 +28,7 @@ class DashboardViews:
     retention: tuple[Mapping[str, object], ...]
     retention_reasons: tuple[Mapping[str, object], ...]
     reconciliation: Mapping[str, object]
+    pipeline: Mapping[str, object]
 
 
 def _integer(row: Mapping[str, object], field: str) -> int:
@@ -165,10 +166,23 @@ def build_dashboard_views(
         "status": "not_loaded",
         "matched": False,
     }
+    pipeline: Mapping[str, object] = {"status": "not_loaded"}
     if report is not None:
         if report.replay_run_id != run.replay_run_id:
             raise FinalizedRunError("course report belongs to another finalized run")
         reconciliation = {"status": "passed", "matched": report.reconciliation_matched}
+        pipeline = {
+            "status": "measured",
+            "replay_executed": report.replay_executed,
+            "total_seconds": report.pipeline_total_seconds,
+            "acknowledged_replay_delivery_rate": report.acknowledged_replay_delivery_rate,
+            "finalized_source_event_rate": report.finalized_source_event_rate,
+            "canonical_gold_bytes": report.canonical_gold_bytes,
+            "retained_security_aware_bytes": report.retained_security_aware_bytes,
+            "retained_storage_ratio": (
+                report.retained_security_aware_bytes / report.canonical_gold_bytes
+            ),
+        }
 
     return DashboardViews(
         overview={
@@ -193,6 +207,7 @@ def build_dashboard_views(
         retention=_retention_rows(run),
         retention_reasons=_retention_reason_rows(run),
         reconciliation=reconciliation,
+        pipeline=pipeline,
     )
 
 
@@ -311,6 +326,29 @@ def main() -> None:
             st.success("Spark and Hadoop exact reconciliation passed.")
         else:
             st.warning("No matching reconciliation report is loaded.")
+        if views.pipeline["status"] == "measured":
+            pipeline_columns = st.columns(4)
+            pipeline_columns[0].metric(
+                "Pipeline duration",
+                f"{cast(float, views.pipeline['total_seconds']):,.2f} s",
+            )
+            replay_rate = views.pipeline["acknowledged_replay_delivery_rate"]
+            pipeline_columns[1].metric(
+                "Replay rate",
+                (
+                    f"{cast(float, replay_rate):,.2f} deliveries/s"
+                    if replay_rate is not None
+                    else "Receipt recovery"
+                ),
+            )
+            pipeline_columns[2].metric(
+                "Finalized rate",
+                f"{cast(float, views.pipeline['finalized_source_event_rate']):,.2f} events/s",
+            )
+            pipeline_columns[3].metric(
+                "Retained storage",
+                f"{100 * cast(float, views.pipeline['retained_storage_ratio']):,.1f}% of Gold",
+            )
         st.caption(
             "Replay timestamps and throughput belong to the analytics experiment, not the device."
         )

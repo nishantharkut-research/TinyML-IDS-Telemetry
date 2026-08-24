@@ -105,9 +105,7 @@ def test_audit_rejects_tampered_portable_compile_artifact(tmp_path: Path) -> Non
 
 def test_audit_rejects_invalid_strict_manifest_identity(tmp_path: Path) -> None:
     root, catalog_path = create_evidence_tree(tmp_path)
-    strict_manifest_path = (
-        root / "results/compile/esp32c3_A_artifacts/strict_export_manifest.json"
-    )
+    strict_manifest_path = root / "results/compile/esp32c3_A_artifacts/strict_export_manifest.json"
     strict_manifest = read_json(strict_manifest_path)
     strict_manifest["student"] = "student_B"
     write_json(strict_manifest_path, strict_manifest)

@@ -83,8 +83,7 @@ def test_catalog_reads_optional_bundle_trust_anchor(tmp_path: Path) -> None:
         tmp_path / "catalog.toml",
         CATALOG_TEXT.replace(
             'sealed_report_sha256 = "' + "a" * 64 + '"',
-            'sealed_report_sha256 = "' + "a" * 64 + '"\n'
-            'evidence_bundle_id = "' + "b" * 64 + '"',
+            'sealed_report_sha256 = "' + "a" * 64 + '"\nevidence_bundle_id = "' + "b" * 64 + '"',
         ),
     )
     evidence_root = tmp_path / "evidence"
