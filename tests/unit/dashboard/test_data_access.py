@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from dashboard.data import FinalizedRunError, load_finalized_run
+from dashboard.app import build_dashboard_views
+from dashboard.data import FinalizedRun, FinalizedRunError, load_course_report, load_finalized_run
 
 OUTPUTS = {
     "canonical_gold",
@@ -96,3 +97,132 @@ def test_load_finalized_run_rejects_aggregate_mutation(tmp_path: Path) -> None:
 
     with pytest.raises(FinalizedRunError, match="SHA-256"):
         load_finalized_run(run)
+
+
+def test_load_course_report_requires_matching_reconciled_run(tmp_path: Path) -> None:
+    run = load_finalized_run(_finalized_run(tmp_path))
+    report_path = tmp_path / "course_report.json"
+    report = {
+        "schema_version": "tinyml-ids-course-report-v1",
+        "replay_run_id": "course-demo",
+        "counts": {
+            "execution_lineage_count": 4,
+            "hardware_execution_count": 225_204,
+            "replay_delivery_count": 225_204,
+            "unique_predictive_row_count": 56_301,
+        },
+        "reconciliation": {"difference_count": 0, "matched": True},
+    }
+    report_path.write_bytes(_canonical(report))
+
+    result = load_course_report(report_path, run)
+
+    assert result.reconciliation_matched is True
+    assert result.unique_predictive_row_count == 56_301
+
+
+def test_load_course_report_rejects_foreign_run(tmp_path: Path) -> None:
+    run = load_finalized_run(_finalized_run(tmp_path))
+    report_path = tmp_path / "course_report.json"
+    report_path.write_bytes(
+        _canonical(
+            {
+                "schema_version": "tinyml-ids-course-report-v1",
+                "replay_run_id": "another-run",
+                "counts": {},
+                "reconciliation": {"difference_count": 0, "matched": True},
+            }
+        )
+    )
+
+    with pytest.raises(FinalizedRunError, match="replay_run_id"):
+        load_course_report(report_path, run)
+
+
+def test_dashboard_views_derive_only_declared_finalized_metrics(tmp_path: Path) -> None:
+    replay_run_id = "course-demo"
+    run = FinalizedRun(
+        run_directory=tmp_path / f"replay_run_id={replay_run_id}",
+        replay_run_id=replay_run_id,
+        source_event_count=100,
+        delivery_count=110,
+        aggregates={
+            "execution_dimension_counts": (
+                {
+                    "replay_run_id": replay_run_id,
+                    "dimension_kind": "predicted_class",
+                    "class_id": 0,
+                    "class_name": "Normal",
+                    "hardware_execution_count": 75,
+                },
+                {
+                    "replay_run_id": replay_run_id,
+                    "dimension_kind": "predicted_class",
+                    "class_id": 1,
+                    "class_name": "Flooding",
+                    "hardware_execution_count": 25,
+                },
+            ),
+            "operational_metrics": (
+                {
+                    "replay_run_id": replay_run_id,
+                    "board": "esp32c3",
+                    "student_model": "student_A",
+                    "hardware_execution_count": 100,
+                    "successful_execution_count": 98,
+                    "predicted_attack_execution_count": 25,
+                    "retry_event_count": 3,
+                    "retry_count": 4,
+                    "response_timeout_count_sum": 1,
+                    "preprocess_us_sum": 100,
+                    "inference_us_sum": 1_500,
+                    "total_us_sum": 2_000,
+                    "host_observed_datagram_rtt_us_sum": 20_000,
+                    "transaction_elapsed_us_sum": 25_000,
+                },
+            ),
+            "predictive_row_metrics": (
+                {
+                    "replay_run_id": replay_run_id,
+                    "metric": "execution_lineage_count",
+                    "value": 4,
+                },
+                {
+                    "replay_run_id": replay_run_id,
+                    "metric": "unique_predictive_row_count",
+                    "value": 25,
+                },
+            ),
+            "retention_metrics": (
+                {
+                    "replay_run_id": replay_run_id,
+                    "policy_id": "retain-all-v1",
+                    "hardware_execution_count": 100,
+                    "retained_hardware_execution_count": 100,
+                    "actual_attack_execution_count": 20,
+                    "retained_actual_attack_execution_count": 20,
+                },
+            ),
+            "retention_reason_counts": (
+                {
+                    "replay_run_id": replay_run_id,
+                    "policy_id": "retain-all-v1",
+                    "reason": "retain_all",
+                    "retained": True,
+                    "decision_count": 100,
+                },
+            ),
+        },
+    )
+
+    views = build_dashboard_views(run)
+
+    assert views.overview["duplicate_delivery_count"] == 10
+    assert views.overview["unique_predictive_row_count"] == 25
+    assert views.overview["execution_lineage_count"] == 4
+    assert views.operations[0]["mean_inference_us"] == 15.0
+    assert views.operations[0]["mean_total_us"] == 20.0
+    assert views.quality["failed_execution_count"] == 2
+    assert views.quality["retry_count"] == 4
+    assert views.predicted_classes[1]["class_name"] == "Flooding"
+    assert views.retention[0]["retention_rate"] == 1.0

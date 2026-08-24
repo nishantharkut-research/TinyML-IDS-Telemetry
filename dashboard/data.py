@@ -41,6 +41,18 @@ class FinalizedRun:
     aggregates: Mapping[str, tuple[Mapping[str, object], ...]]
 
 
+@dataclass(frozen=True)
+class CourseReportSummary:
+    """Reconciliation state bound to one finalized replay run."""
+
+    replay_run_id: str
+    reconciliation_matched: bool
+    execution_lineage_count: int
+    hardware_execution_count: int
+    replay_delivery_count: int
+    unique_predictive_row_count: int
+
+
 def _read_json_object(path: Path, label: str) -> tuple[dict[str, object], bytes]:
     try:
         payload = path.read_bytes()
@@ -114,4 +126,50 @@ def load_finalized_run(run_directory: Path) -> FinalizedRun:
         source_event_count=source_event_count,
         delivery_count=delivery_count,
         aggregates=MappingProxyType(tables),
+    )
+
+
+def _report_count(counts: Mapping[str, object], field: str) -> int:
+    value = counts.get(field)
+    if type(value) is not int or value < 0:
+        raise FinalizedRunError(f"course report {field} must be a nonnegative integer")
+    return value
+
+
+def load_course_report(report_path: Path, run: FinalizedRun) -> CourseReportSummary:
+    """Load a successful Spark-Hadoop reconciliation bound to ``run``."""
+    report, _ = _read_json_object(report_path.expanduser().resolve(), "course report")
+    if report.get("schema_version") != "tinyml-ids-course-report-v1":
+        raise FinalizedRunError("course report has an unsupported schema_version")
+    replay_run_id = report.get("replay_run_id")
+    if replay_run_id != run.replay_run_id:
+        raise FinalizedRunError("course report replay_run_id does not match the finalized run")
+
+    raw_counts = report.get("counts")
+    if not isinstance(raw_counts, Mapping):
+        raise FinalizedRunError("course report counts must be a JSON object")
+    counts = cast(Mapping[str, object], raw_counts)
+    lineages = _report_count(counts, "execution_lineage_count")
+    hardware = _report_count(counts, "hardware_execution_count")
+    deliveries = _report_count(counts, "replay_delivery_count")
+    predictive_rows = _report_count(counts, "unique_predictive_row_count")
+    if hardware != run.source_event_count or deliveries != run.delivery_count:
+        raise FinalizedRunError("course report counts do not match the finalized run")
+    if lineages == 0 or predictive_rows == 0:
+        raise FinalizedRunError("course report evidence counts are inconsistent")
+
+    raw_reconciliation = report.get("reconciliation")
+    if not isinstance(raw_reconciliation, Mapping):
+        raise FinalizedRunError("course report reconciliation must be a JSON object")
+    reconciliation = cast(Mapping[str, object], raw_reconciliation)
+    if reconciliation.get("matched") is not True or reconciliation.get("difference_count") != 0:
+        raise FinalizedRunError("course report does not record exact reconciliation")
+
+    return CourseReportSummary(
+        replay_run_id=run.replay_run_id,
+        reconciliation_matched=True,
+        execution_lineage_count=lineages,
+        hardware_execution_count=hardware,
+        replay_delivery_count=deliveries,
+        unique_predictive_row_count=predictive_rows,
     )
