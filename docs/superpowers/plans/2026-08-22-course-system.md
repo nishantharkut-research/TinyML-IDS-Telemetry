@@ -153,7 +153,7 @@
 - [x] Write failing finalization tests for exact source-event deduplication and expected-lineage checks.
 - [x] Implement atomic Gold finalization and finalized-run manifest creation.
 - [x] Add Spark SQL aggregate builders and documented SQL queries.
-- [ ] Run the Kafka-to-Parquet and state-store integration tests during the Linux local-platform verification, when a one-partition broker and native Hadoop filesystem support are available.
+- [x] Run the Kafka-to-Parquet and state-store integration tests during the Linux local-platform verification, when a one-partition broker and native Hadoop filesystem support are available.
 
 ### Task 7: HDFS and Hadoop Streaming Oracle
 
@@ -174,7 +174,7 @@
 - [x] Write failing reconciliation tests that identify field-level mismatches.
 - [x] Implement Spark/Hadoop comparison with exact count/sum equality and declared percentile tolerances.
 - [x] Add an HDFS runner using the official Hadoop Streaming JAR.
-- [ ] Run local pipeline and Docker Hadoop integration tests; commit the batch oracle.
+- [x] Run local pipeline and Docker Hadoop integration tests; commit the batch oracle.
 
 ### Task 8: Local Infrastructure and Operations
 
@@ -190,12 +190,12 @@
 - Create: `scripts/verify-services.py`
 - Test: `tests/contract/test_compose_config.py`
 
-- [ ] Write a contract test for pinned images, health checks, named volumes, and credential-free configuration.
-- [ ] Add single-node KRaft Kafka, Spark, HDFS/MapReduce, and application service definitions.
-- [ ] Add idempotent topic/HDFS bootstrap scripts.
-- [ ] Add cross-platform fixture and full-evidence run scripts with fail-fast checks.
-- [ ] Validate Compose configuration, health checks, restart behavior, and volume isolation.
-- [ ] Commit the local platform.
+- [x] Write a contract test for pinned images, health checks, named volumes, and credential-free configuration.
+- [x] Add single-node KRaft Kafka, Spark, HDFS/MapReduce, and application service definitions.
+- [x] Add idempotent topic/HDFS bootstrap scripts.
+- [x] Add cross-platform fixture and full-evidence run scripts with fail-fast checks.
+- [x] Validate Compose configuration, health checks, restart behavior, and volume isolation.
+- [x] Commit the local platform.
 
 ### Task 9: Dashboard and Course Experiment Reporting
 
