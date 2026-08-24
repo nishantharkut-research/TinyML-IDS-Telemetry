@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from hashlib import sha256
 from pathlib import Path
 
@@ -226,3 +228,19 @@ def test_dashboard_views_derive_only_declared_finalized_metrics(tmp_path: Path) 
     assert views.quality["retry_count"] == 4
     assert views.predicted_classes[1]["class_name"] == "Flooding"
     assert views.retention[0]["retention_rate"] == 1.0
+
+
+def test_streamlit_entrypoint_imports_from_outside_checkout(tmp_path: Path) -> None:
+    app = Path(__file__).resolve().parents[3] / "dashboard" / "app.py"
+    run_name = "tinyml_dashboard_import_probe"
+    command = f"import runpy; runpy.run_path({str(app)!r}, run_name={run_name!r})"
+
+    result = subprocess.run(
+        [sys.executable, "-c", command],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr

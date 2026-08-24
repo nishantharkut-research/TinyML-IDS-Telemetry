@@ -58,7 +58,7 @@ dashboard = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tinyml_ids_telemetry"]
+packages = ["src/tinyml_ids_telemetry", "dashboard"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"

@@ -27,6 +27,7 @@ tmp/
 
 # Containers and editors
 .docker/
+.playwright-cli/
 .idea/
 .vscode/
 *.swp

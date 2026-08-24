@@ -198,10 +198,10 @@ def build_dashboard_views(
 
 def main() -> None:
     """Run the Streamlit application."""
-    import streamlit as st  # type: ignore[import-not-found]
+    import streamlit as st
 
     st.set_page_config(page_title="TinyML IDS telemetry", layout="wide")
-    st.title("TinyML IDS telemetry")
+    st.header("TinyML IDS telemetry")
 
     default_run = os.environ.get("TINYML_IDS_FINALIZED_RUN", "")
     default_report = os.environ.get("TINYML_IDS_COURSE_REPORT", "")
@@ -242,13 +242,69 @@ def main() -> None:
         quality_columns[3].metric(
             "Response timeouts", f"{views.quality['response_timeout_count']:,}"
         )
-        st.dataframe(list(views.operations), hide_index=True, use_container_width=True)
+        st.dataframe(
+            list(views.operations),
+            column_order=(
+                "board",
+                "student_model",
+                "hardware_execution_count",
+                "mean_preprocess_us",
+                "mean_inference_us",
+                "mean_total_us",
+                "mean_wifi_rtt_us",
+                "mean_transaction_us",
+            ),
+            column_config={
+                "board": "Board",
+                "student_model": "Model",
+                "hardware_execution_count": "Executions",
+                "mean_preprocess_us": "Mean preprocess (us)",
+                "mean_inference_us": "Mean inference (us)",
+                "mean_total_us": "Mean MCU total (us)",
+                "mean_wifi_rtt_us": "Mean Wi-Fi RTT (us)",
+                "mean_transaction_us": "Mean transaction (us)",
+            },
+            hide_index=True,
+            width="stretch",
+        )
         st.caption("Timing columns are arithmetic means over finalized hardware executions.")
     with classes_tab:
-        st.dataframe(list(views.predicted_classes), hide_index=True, use_container_width=True)
+        st.dataframe(
+            list(views.predicted_classes),
+            column_config={
+                "class_id": "Class ID",
+                "class_name": "Predicted class",
+                "hardware_execution_count": "Executions",
+            },
+            hide_index=True,
+            width="stretch",
+        )
     with retention_tab:
-        st.dataframe(list(views.retention), hide_index=True, use_container_width=True)
-        st.dataframe(list(views.retention_reasons), hide_index=True, use_container_width=True)
+        st.dataframe(
+            list(views.retention),
+            column_config={
+                "policy_id": "Policy",
+                "hardware_execution_count": "Executions",
+                "retained_hardware_execution_count": "Retained",
+                "retention_rate": "Retention rate",
+                "actual_attack_execution_count": "Actual attacks",
+                "retained_actual_attack_execution_count": "Actual attacks retained",
+                "actual_attack_retention_rate": "Actual-attack retention rate",
+            },
+            hide_index=True,
+            width="stretch",
+        )
+        st.dataframe(
+            list(views.retention_reasons),
+            column_config={
+                "policy_id": "Policy",
+                "reason": "Decision reason",
+                "retained": "Retained",
+                "decision_count": "Decisions",
+            },
+            hide_index=True,
+            width="stretch",
+        )
     with verification_tab:
         status = cast(str, views.reconciliation["status"])
         if status == "passed":
