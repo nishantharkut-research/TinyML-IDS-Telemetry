@@ -207,13 +207,13 @@
 - Test: `tests/unit/dashboard/test_data_access.py`
 - Test: `tests/unit/quality/test_report.py`
 
-- [ ] Write failing tests for loading only finalized aggregates and rejecting incomplete runs.
-- [ ] Implement read-only dashboard data access and compact views for throughput, quality, latency, classes, failures, retention, and reconciliation.
-- [ ] Write failing report tests for repeated-execution wording and claim boundaries.
-- [ ] Implement machine-readable and Markdown experiment reports.
-- [ ] Document the eight course experiments, units, controlled variables, and interpretation limits.
-- [ ] Map each feature to the taught big-data concepts.
-- [ ] Run dashboard/report tests and commit presentation support.
+- [x] Write failing tests for loading only finalized aggregates and rejecting incomplete runs.
+- [x] Implement read-only dashboard data access and compact views for throughput, quality, latency, classes, failures, retention, and reconciliation.
+- [x] Write failing report tests for repeated-execution wording and claim boundaries.
+- [x] Implement machine-readable and Markdown experiment reports.
+- [x] Document the eight course experiments, units, controlled variables, and interpretation limits.
+- [x] Map each feature to the taught big-data concepts.
+- [x] Run dashboard/report tests and commit presentation support.
 
 ### Task 10: End-to-End Verification and Independent Review
 
