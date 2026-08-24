@@ -20,10 +20,17 @@ from tinyml_ids_telemetry.evidence.catalog import (
 class FinalizedRunView(Protocol):
     """The report fields supplied by the read-only dashboard data layer."""
 
-    replay_run_id: str
-    source_event_count: int
-    delivery_count: int
-    aggregates: Mapping[str, tuple[Mapping[str, object], ...]]
+    @property
+    def replay_run_id(self) -> str: ...
+
+    @property
+    def source_event_count(self) -> int: ...
+
+    @property
+    def delivery_count(self) -> int: ...
+
+    @property
+    def aggregates(self) -> Mapping[str, tuple[Mapping[str, object], ...]]: ...
 
 
 class CourseReportError(ValueError):
@@ -68,6 +75,16 @@ def build_course_report(
     reconciliation_failed = reconciliation.get("matched") is not True
     if reconciliation_failed or not isinstance(differences, list) or differences:
         raise CourseReportError("reconciliation did not match")
+    raw_provenance = reconciliation.get("provenance")
+    if not isinstance(raw_provenance, Mapping):
+        raise CourseReportError("reconciliation provenance must be an object")
+    provenance = cast(Mapping[str, object], raw_provenance)
+    raw_spark = provenance.get("spark_aggregate")
+    if not isinstance(raw_spark, Mapping):
+        raise CourseReportError("reconciliation Spark provenance must be an object")
+    spark_provenance = cast(Mapping[str, object], raw_spark)
+    if spark_provenance.get("replay_run_id") != run.replay_run_id:
+        raise CourseReportError("reconciliation replay_run_id does not match the finalized run")
     raw_summary = reconciliation.get("summary")
     if not isinstance(raw_summary, Mapping):
         raise CourseReportError("reconciliation summary must be an object")
