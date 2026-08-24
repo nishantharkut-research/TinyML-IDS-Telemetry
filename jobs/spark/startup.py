@@ -107,6 +107,32 @@ def kafka_source_options(contract: KafkaStreamContract) -> dict[str, str]:
 PartitionInspector = Callable[[str, str], int]
 
 
+def _partition_count_from_descriptions(descriptions: object, topic: str) -> int:
+    if not isinstance(descriptions, list) or len(descriptions) != 1:
+        raise SparkContractError(f"Kafka topic {topic!r} returned invalid metadata")
+    description = descriptions[0]
+    if (
+        not isinstance(description, Mapping)
+        or description.get("error_code") != 0
+        or description.get("name") != topic
+    ):
+        raise SparkContractError(f"Kafka topic {topic!r} returned invalid metadata")
+    partitions = description.get("partitions")
+    if not isinstance(partitions, list) or not partitions:
+        raise SparkContractError(f"Kafka topic {topic!r} returned invalid metadata")
+    indices: list[int] = []
+    for partition in partitions:
+        if not isinstance(partition, Mapping):
+            raise SparkContractError(f"Kafka topic {topic!r} returned invalid metadata")
+        index = partition.get("partition_index")
+        if type(index) is not int:
+            raise SparkContractError(f"Kafka topic {topic!r} returned invalid metadata")
+        indices.append(index)
+    if sorted(indices) != list(range(len(partitions))):
+        raise SparkContractError(f"Kafka topic {topic!r} returned invalid metadata")
+    return len(partitions)
+
+
 def _kafka_partition_count(bootstrap_servers: str, topic: str) -> int:
     try:
         from kafka import KafkaAdminClient  # type: ignore[import-untyped]
@@ -122,12 +148,7 @@ def _kafka_partition_count(bootstrap_servers: str, topic: str) -> int:
             admin.close()
     except Exception as error:
         raise SparkContractError(f"unable to inspect Kafka topic {topic!r}: {error}") from error
-    if len(descriptions) != 1 or descriptions[0].get("topic") != topic:
-        raise SparkContractError(f"Kafka topic {topic!r} was not described exactly once")
-    partitions = descriptions[0].get("partitions")
-    if not isinstance(partitions, list):
-        raise SparkContractError(f"Kafka topic {topic!r} returned invalid partition metadata")
-    return len(partitions)
+    return _partition_count_from_descriptions(descriptions, topic)
 
 
 def validate_kafka_topic(

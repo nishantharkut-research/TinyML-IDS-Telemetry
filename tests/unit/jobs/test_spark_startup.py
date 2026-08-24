@@ -108,6 +108,38 @@ def test_actual_kafka_topic_partition_count_is_checked_through_injected_inspecto
         validate_kafka_topic(contract, partition_inspector=lambda _bootstrap, _topic: 2)
 
 
+def test_kafka_admin_metadata_uses_the_pinned_client_shape() -> None:
+    descriptions = [
+        {
+            "error_code": 0,
+            "name": "telemetry",
+            "partitions": [{"partition_index": 0}],
+        }
+    ]
+
+    assert startup_module._partition_count_from_descriptions(descriptions, "telemetry") == 1
+
+
+@pytest.mark.parametrize(
+    "descriptions",
+    [
+        [{"error_code": 0, "topic": "telemetry", "partitions": [{"partition_index": 0}]}],
+        [{"error_code": 3, "name": "telemetry", "partitions": []}],
+        [{"error_code": 0, "name": "other", "partitions": [{"partition_index": 0}]}],
+        [
+            {
+                "error_code": 0,
+                "name": "telemetry",
+                "partitions": [{"partition_index": 1}],
+            }
+        ],
+    ],
+)
+def test_kafka_admin_metadata_fails_closed(descriptions: list[dict[str, object]]) -> None:
+    with pytest.raises(SparkContractError, match="invalid metadata"):
+        startup_module._partition_count_from_descriptions(descriptions, "telemetry")
+
+
 def test_streaming_paths_are_explicit_distinct_and_query_versioned(tmp_path: Path) -> None:
     paths = StreamingPaths.build(
         tmp_path,

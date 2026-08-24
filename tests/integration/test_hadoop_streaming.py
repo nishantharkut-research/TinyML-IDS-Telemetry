@@ -140,13 +140,14 @@ def _local_oracle(fixture: Path) -> bytes:
             capture_output=True,
         ).stdout
     sorted_mapper_output = b"\n".join(sorted(mapped.splitlines())) + b"\n"
-    return subprocess.run(
+    reduced = subprocess.run(
         [sys.executable, str(REDUCER)],
         cwd=PROJECT_ROOT,
         input=sorted_mapper_output,
         check=True,
         capture_output=True,
     ).stdout
+    return b"".join(line + b"\t\n" for line in reduced.splitlines())
 
 
 def test_official_hadoop_streaming_matches_the_local_oracle(tmp_path: Path) -> None:
@@ -188,11 +189,11 @@ def test_official_hadoop_streaming_matches_the_local_oracle(tmp_path: Path) -> N
             environment=environment,
         )
         assert runner_output.splitlines() == [
-            f"{hdfs_output}/metrics/part-r-00000".encode("ascii"),
+            f"{hdfs_output}/metrics/part-00000".encode("ascii"),
             f"{hdfs_output}/hadoop_oracle_manifest.json".encode("ascii"),
         ]
         observed = _run(
-            [str(hdfs), "dfs", "-cat", f"{hdfs_output}/metrics/part-r-00000"],
+            [str(hdfs), "dfs", "-cat", f"{hdfs_output}/metrics/part-00000"],
             environment=environment,
         )
         manifest_payload = _run(
@@ -224,7 +225,7 @@ def test_official_hadoop_streaming_matches_the_local_oracle(tmp_path: Path) -> N
         assert b"refusing to replace existing HDFS output" in repeated.stderr
         assert (
             _run(
-                [str(hdfs), "dfs", "-cat", f"{hdfs_output}/metrics/part-r-00000"],
+                [str(hdfs), "dfs", "-cat", f"{hdfs_output}/metrics/part-00000"],
                 environment=environment,
             )
             == observed

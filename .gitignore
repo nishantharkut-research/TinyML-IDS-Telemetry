@@ -22,6 +22,8 @@ logs/
 reports/local/
 spark-warehouse/
 metastore_db/
+output/
+tmp/
 
 # Containers and editors
 .docker/
@@ -30,4 +32,3 @@ metastore_db/
 *.swp
 Thumbs.db
 .DS_Store
-

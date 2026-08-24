@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
@@ -19,36 +20,81 @@ _SAFE_TOPIC_PREFIX = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
 _LOGGER = logging.getLogger(__name__)
 
 
-def _prerequisites() -> tuple[str, str]:
+def test_explicit_invalid_spark_integration_opt_in_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TINYML_IDS_REQUIRE_SPARK_INTEGRATION", "0")
+
+    with pytest.raises(pytest.fail.Exception, match="must equal 1"):
+        _prerequisites()
+
+
+def test_required_spark_integration_fails_when_configuration_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TINYML_IDS_REQUIRE_SPARK_INTEGRATION", "1")
+    monkeypatch.delenv("KAFKA_BOOTSTRAP_SERVERS", raising=False)
+    monkeypatch.delenv("KAFKA_TOPIC", raising=False)
+
+    with pytest.raises(pytest.fail.Exception, match="KAFKA_BOOTSTRAP_SERVERS"):
+        _prerequisites()
+
+
+def _prerequisites() -> tuple[str, str, bool]:
+    opt_in = os.environ.get("TINYML_IDS_REQUIRE_SPARK_INTEGRATION")
+    if opt_in is not None and opt_in != "1":
+        pytest.fail("TINYML_IDS_REQUIRE_SPARK_INTEGRATION must equal 1 when explicitly set")
+    required = opt_in == "1"
     bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "").strip()
     topic_prefix = os.environ.get("KAFKA_TOPIC", "").strip()
     if not bootstrap or not topic_prefix:
-        pytest.skip("set KAFKA_BOOTSTRAP_SERVERS and KAFKA_TOPIC for local Kafka integration")
+        message = "set KAFKA_BOOTSTRAP_SERVERS and KAFKA_TOPIC for local Kafka integration"
+        if required:
+            pytest.fail(message)
+        pytest.skip(message)
     if _SAFE_TOPIC_PREFIX.fullmatch(topic_prefix) is None:
         pytest.fail("KAFKA_TOPIC must be a safe Kafka topic prefix")
     if os.name == "nt" and shutil.which("winutils") is None:
-        pytest.skip("local Spark Parquet writes on Windows require Hadoop winutils.exe")
-    return bootstrap, topic_prefix
+        _unavailable("local Spark Parquet writes on Windows require Hadoop winutils.exe", required)
+    return bootstrap, topic_prefix, required
 
 
-def _warn_cleanup(label: str, action: Callable[[], object]) -> None:
+def _unavailable(message: str, required: bool) -> None:
+    if required:
+        pytest.fail(message)
+    pytest.skip(message)
+
+
+def _record_cleanup(label: str, action: Callable[[], object], errors: list[str]) -> None:
     try:
         action()
     except Exception as error:
         _LOGGER.warning("%s cleanup failed: %s", label, error, exc_info=True)
+        errors.append(f"{label} cleanup failed: {error}")
+
+
+def test_cleanup_failure_is_recorded() -> None:
+    errors: list[str] = []
+
+    def fail() -> None:
+        raise RuntimeError("cleanup failed")
+
+    _record_cleanup("fixture", fail, errors)
+
+    assert errors == ["fixture cleanup failed: cleanup failed"]
 
 
 def test_one_partition_kafka_delivery_reaches_four_distinct_parquet_sinks(
     tmp_path: Path,
 ) -> None:
-    bootstrap, topic_prefix = _prerequisites()
+    bootstrap, topic_prefix, required = _prerequisites()
     try:
         from kafka import KafkaAdminClient, KafkaProducer  # type: ignore[import-untyped]
         from kafka.admin import NewTopic  # type: ignore[import-untyped]
         from pyspark.sql import SparkSession
         from pyspark.sql import functions as F  # noqa: N812
     except ImportError as error:
-        pytest.skip(f"Kafka/Spark Python prerequisite unavailable: {error}")
+        _unavailable(f"Kafka/Spark Python prerequisite unavailable: {error}", required)
 
     from jobs.spark.startup import (
         SPARK_KAFKA_CONNECTOR,
@@ -76,12 +122,13 @@ def test_one_partition_kafka_delivery_reaches_four_distinct_parquet_sinks(
                 wait_for_metadata=True,
             )
         except Exception as error:
-            pytest.skip(f"ephemeral Kafka topic setup unavailable: {error}")
+            _unavailable(f"ephemeral Kafka topic setup unavailable: {error}", required)
 
         descriptions = admin.describe_topics([topic])
         assert len(descriptions) == 1
-        assert descriptions[0]["topic"] == topic
-        assert [partition["partition"] for partition in descriptions[0]["partitions"]] == [0]
+        assert descriptions[0]["error_code"] == 0
+        assert descriptions[0]["name"] == topic
+        assert [partition["partition_index"] for partition in descriptions[0]["partitions"]] == [0]
 
         try:
             spark = (
@@ -93,7 +140,7 @@ def test_one_partition_kafka_delivery_reaches_four_distinct_parquet_sinks(
                 .getOrCreate()
             )
         except Exception as error:
-            pytest.skip(f"Spark Kafka connector 4.1.3 unavailable: {error}")
+            _unavailable(f"Spark Kafka connector 4.1.3 unavailable: {error}", required)
 
         event = telemetry_event()
         envelope = envelope_mapping(event, replay_run_id=replay_run_id)
@@ -193,16 +240,21 @@ def test_one_partition_kafka_delivery_reaches_four_distinct_parquet_sinks(
         else:
             assert paths.quarantine.is_dir()
     finally:
+        primary_failed = sys.exc_info()[0] is not None
+        cleanup_errors: list[str] = []
         if producer is not None:
-            _warn_cleanup("Kafka producer", producer.close)
+            _record_cleanup("Kafka producer", producer.close, cleanup_errors)
         if queries is not None:
-            _warn_cleanup("Spark queries", queries.stop)
+            _record_cleanup("Spark queries", queries.stop, cleanup_errors)
         if spark is not None:
-            _warn_cleanup("Spark session", spark.stop)
+            _record_cleanup("Spark session", spark.stop, cleanup_errors)
         if admin is not None and topic_creation_attempted:
-            _warn_cleanup(
+            _record_cleanup(
                 "ephemeral Kafka topic",
                 lambda: admin.delete_topics([topic], timeout_ms=30_000),
+                cleanup_errors,
             )
         if admin is not None:
-            _warn_cleanup("Kafka admin client", admin.close)
+            _record_cleanup("Kafka admin client", admin.close, cleanup_errors)
+        if cleanup_errors and not primary_failed:
+            pytest.fail("; ".join(cleanup_errors))

@@ -347,12 +347,18 @@ def _stream_metrics_evidence(source: BinaryIO) -> tuple[str, int, str, int]:
             raise OracleManifestError(
                 f"Hadoop reducer metric line {line_number} is invalid JSON: {error}"
             ) from error
-        if not isinstance(row, dict) or row.get("metric") != "source_event_occurrence_count":
-            continue
-        if raw_line != canonical_manifest(row):
+        if not isinstance(row, dict):
             raise OracleManifestError(
-                f"Hadoop reducer metric line {line_number} must be canonical compact JSON"
+                f"Hadoop reducer metric line {line_number} must be a JSON object"
             )
+        expected_record = canonical_manifest(row)[:-1] + b"\t\n"
+        if raw_line != expected_record:
+            raise OracleManifestError(
+                f"Hadoop reducer metric line {line_number} must use canonical compact JSON "
+                "with one Hadoop text-output separator"
+            )
+        if row.get("metric") != "source_event_occurrence_count":
+            continue
         _exact_fields(
             row,
             frozenset({"dimensions", "metric", "statistical_unit", "value"}),

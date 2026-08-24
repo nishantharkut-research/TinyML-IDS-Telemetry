@@ -1,0 +1,152 @@
+services:
+  kafka:
+    image: apache/kafka:4.1.2@sha256:5cc2a2fd93fa2687b44015eee04fb2c3edd9e526bd64bf8bec5ff1e268772e0e
+    hostname: kafka
+    restart: unless-stopped
+    cpus: 1.0
+    mem_limit: 1536m
+    environment:
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:29093,INTERNAL://:19092,HOST://:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,HOST://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - 127.0.0.1:9092:9092
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+      - type: tmpfs
+        target: /etc/kafka/secrets
+      - type: tmpfs
+        target: /mnt/shared/config
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+    networks:
+      - telemetry
+
+  hadoop:
+    build:
+      context: .
+      dockerfile: infra/hadoop/Dockerfile
+    image: tinyml-ids-telemetry-hadoop:3.5.0
+    hostname: hadoop
+    restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 4g
+    environment:
+      HADOOP_HOME: /opt/hadoop
+      HADOOP_CONF_DIR: /opt/hadoop/etc/hadoop
+      JAVA_HOME: /opt/java/openjdk
+      TELEMETRY_ARTIFACT_ROOT: /workspace/artifacts
+    ports:
+      - 127.0.0.1:9870:9870
+      - 127.0.0.1:8088:8088
+      - 127.0.0.1:19888:19888
+    volumes:
+      - hadoop_namenode:/opt/hadoop/data/namenode
+      - hadoop_datanode:/opt/hadoop/data/datanode
+      - telemetry_artifacts:/workspace/artifacts
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)' && yarn node -list 2>/dev/null | grep -q 'Total Nodes:1'"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 40s
+    networks:
+      - telemetry
+
+  spark:
+    build:
+      context: .
+      dockerfile: infra/spark/Dockerfile
+    image: tinyml-ids-telemetry-spark:4.1.3
+    hostname: spark
+    restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 3g
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      HOME: /home/spark
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PYTHONPATH: /opt/spark/python/lib/pyspark.zip:/opt/spark/python/lib/py4j-0.10.9.9-src.zip:/workspace/src:/workspace
+      SPARK_LOCAL_IP: spark
+      TELEMETRY_ARTIFACT_ROOT: /workspace/artifacts
+    ports:
+      - 127.0.0.1:4040:4040
+    volumes:
+      - spark_ivy:/home/spark/.ivy2
+      - telemetry_artifacts:/workspace/artifacts
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          java -version >/dev/null 2>&1 &&
+          test -x /opt/spark/bin/spark-submit &&
+          test -f /opt/spark/ivy/jars/org.apache.spark_spark-sql-kafka-0-10_2.13-4.1.3.jar &&
+          python3 -c "import pyspark; assert pyspark.__version__ == '4.1.3'"
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    networks:
+      - telemetry
+
+  app:
+    build:
+      context: .
+      dockerfile: infra/spark/Dockerfile
+    image: tinyml-ids-telemetry-spark:4.1.3
+    hostname: app
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 512m
+    depends_on:
+      hadoop:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      spark:
+        condition: service_healthy
+    environment:
+      HOME: /home/spark
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      PYTHONPATH: /opt/spark/python/lib/pyspark.zip:/opt/spark/python/lib/py4j-0.10.9.9-src.zip:/workspace/src:/workspace
+      TELEMETRY_ARTIFACT_ROOT: /workspace/artifacts
+    volumes:
+      - spark_ivy:/home/spark/.ivy2
+      - telemetry_artifacts:/workspace/artifacts
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import tinyml_ids_telemetry"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    networks:
+      - telemetry
+
+networks:
+  telemetry:
+    driver: bridge
+
+volumes:
+  hadoop_datanode:
+  hadoop_namenode:
+  kafka_data:
+  spark_ivy:
+  telemetry_artifacts:

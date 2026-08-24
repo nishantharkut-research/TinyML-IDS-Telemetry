@@ -399,7 +399,7 @@ def _summary(report: Mapping[str, object]) -> dict[str, int]:
 
 
 def _metrics_payload(rows: list[str]) -> bytes:
-    return ("\n".join(rows) + "\n").encode("utf-8")
+    return b"".join(raw.encode("utf-8") + b"\t\n" for raw in rows)
 
 
 def _spark_payload(aggregates: Mapping[str, object]) -> bytes:
@@ -644,7 +644,7 @@ def _run_fake_runner(
     published_manifest = tmp_path / "published-hadoop-manifest.json"
     events = tmp_path / "events.jsonl"
     snapshot_manifest = tmp_path / "snapshot-manifest.json"
-    metrics = tmp_path / "part-r-00000"
+    metrics = tmp_path / "part-00000"
     events.write_bytes(b"{}\n")
     snapshot_manifest.write_bytes(
         (
@@ -663,6 +663,7 @@ if [[ ${1:-} == version ]]; then
 fi
 if [[ ${1:-} == jar ]]; then
     printf '%s\n' "$@" > "$FAKE_HADOOP_ARGV"
+    printf 'packageJobJar: fake Hadoop staging output\n'
     exit "$FAKE_HADOOP_JOB_STATUS"
 fi
 exit 99
@@ -704,7 +705,7 @@ if [[ ${2:-} == -cat && ${3##*/} == events.jsonl ]]; then
     cat "$FAKE_EVENTS"
     exit "$FAKE_HDFS_EVENTS_CAT_STATUS"
 fi
-if [[ ${2:-} == -cat && ${3##*/} == part-r-00000 ]]; then
+if [[ ${2:-} == -cat && ${3##*/} == part-00000 ]]; then
     cat "$FAKE_METRICS"
     exit 0
 fi
@@ -1821,7 +1822,7 @@ def test_runner_launches_exact_jar_with_files_and_exactly_one_reducer(tmp_path: 
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.splitlines() == [
-        "/results/oracle/metrics/part-r-00000",
+        "/results/oracle/metrics/part-00000",
         "/results/oracle/hadoop_oracle_manifest.json",
     ]
     arguments = capture.read_text(encoding="utf-8").splitlines()
@@ -1856,7 +1857,7 @@ def test_runner_launches_exact_jar_with_files_and_exactly_one_reducer(tmp_path: 
     assert manifest["hadoop_version"] == "3.5.0"
     assert manifest["reducer_count"] == 1
     assert manifest["input_events_hdfs_path"] == "/results/oracle/input/events.jsonl"
-    assert manifest["output_metrics_hdfs_path"] == "/results/oracle/metrics/part-r-00000"
+    assert manifest["output_metrics_hdfs_path"] == "/results/oracle/metrics/part-00000"
     assert manifest["metrics_sha256"] == sha256(_metrics_payload(_hadoop_rows())).hexdigest()
     assert manifest["metrics_row_count"] == len(_hadoop_rows())
     assert manifest["canonical_event_identity_sha256"] == _canonical_event_identity(_hadoop_rows())

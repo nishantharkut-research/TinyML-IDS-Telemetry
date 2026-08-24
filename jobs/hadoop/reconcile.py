@@ -248,9 +248,14 @@ def _ordered_dimension_names(metric: str, dimensions: Mapping[str, JsonScalar]) 
 
 
 def _parse_hadoop_row(raw_line: str, line_number: int) -> _MetricRow:
-    raw = raw_line.rstrip("\r\n")
-    if not raw:
+    framed = raw_line.rstrip("\r\n")
+    if not framed:
         raise ReconciliationError(f"Hadoop metric line {line_number} must not be blank")
+    raw = framed[:-1] if framed.endswith("\t") else framed
+    if not raw or "\t" in raw:
+        raise ReconciliationError(
+            f"Hadoop metric line {line_number} has invalid text-output framing"
+        )
     try:
         parsed = json.loads(
             raw,

@@ -46,7 +46,7 @@ done
 
 events_source="$hdfs_input/events.jsonl"
 snapshot_manifest_input="$hdfs_input/snapshot_manifest.json"
-metrics_output="$hdfs_output/metrics/part-r-00000"
+metrics_output="$hdfs_output/metrics/part-00000"
 oracle_manifest_output="$hdfs_output/hadoop_oracle_manifest.json"
 published_events="$hdfs_output/input/events.jsonl"
 oracle_python=${PYTHON_BIN:-python3}
@@ -70,7 +70,7 @@ fi
 staged_input_directory="$staging_root/input"
 staged_events="$staged_input_directory/events.jsonl"
 staged_metrics_directory="$staging_root/metrics"
-staged_metrics="$staged_metrics_directory/part-r-00000"
+staged_metrics="$staged_metrics_directory/part-00000"
 staged_oracle_manifest="$staging_root/hadoop_oracle_manifest.json"
 publication_lock_acquired=0
 cleanup() {
@@ -130,7 +130,7 @@ streaming_args=(
     -numReduceTasks 1
 )
 
-"$hadoop_bin" jar "$streaming_jar" "${streaming_args[@]}"
+"$hadoop_bin" jar "$streaming_jar" "${streaming_args[@]}" >&2
 "$hdfs_bin" dfs -cat "$staged_metrics" | \
     MSYS2_ARG_CONV_EXCL='--input-events-hdfs-path=;--output-metrics-hdfs-path=' \
     run_oracle_helper build \
